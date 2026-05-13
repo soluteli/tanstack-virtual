@@ -6,8 +6,6 @@ import { VirtualItem } from '@tanstack/react-virtual';
 export function ChatMessages() {
   const parentRef = React.useRef<HTMLDivElement>(null);
 
-  const [enabled, setEnabled] = React.useState(true);
-
   const { virtualizer, onItemSizeAsyncChange, virtualItems: listData } = useChatScroll(
     {
       getScrollElement: () => parentRef.current,
@@ -42,13 +40,6 @@ export function ChatMessages() {
         scroll to the end
       </button>
       <span style={{ padding: '0 4px' }} />
-      <button
-        onClick={() => {
-          setEnabled((prev) => !prev);
-        }}
-      >
-        turn {enabled ? 'off' : 'on'} virtualizer
-      </button>
       <hr />
       <div
         ref={parentRef}
