@@ -14,11 +14,35 @@ export interface MessageWithImage {
   imageUrl: string
 }
 
-export const messagesWithImage: MessageWithImage[] = new Array(100)
-  .fill(true)
-  .map((_, i) => ({
-    uid: faker.string.uuid(),
-    id: i,
-    text: faker.lorem.sentence(randomNumber(20, 70)),
-    imageUrl: faker.image.urlPicsumPhotos({ width: 40, height: randomNumber(10, 100) }),
-  }))
+interface GenMessagesListHistoryParams {
+  size: number
+  start?: number
+  end?: number
+}
+
+export const genMessagesListHistory = ({
+  size,
+  start,
+  end,
+}: GenMessagesListHistoryParams): MessageWithImage[] => {
+  if (start !== undefined && end !== undefined) {
+    throw new Error('Cannot specify both start and end')
+  }
+
+  const count = start !== undefined 
+    ? size 
+    : end !== undefined 
+      ? (end - size) >=0 ? size : end
+      : size
+
+  const startIndex = start ?? (end !== undefined ? end - size : 0)
+
+  return new Array(count)
+    .fill(true)
+    .map((_, i) => ({
+      uid: faker.string.uuid(),
+      id: startIndex + i,
+      text: faker.lorem.sentence(randomNumber(20, 70)),
+      imageUrl: faker.image.urlPicsumPhotos({ width: 40, height: randomNumber(10, 100) }),
+    }))
+}
