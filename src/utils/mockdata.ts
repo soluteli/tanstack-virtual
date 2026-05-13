@@ -14,7 +14,7 @@ export interface MessageWithImage {
   imageUrl: string
 }
 
-export const messagesWithImage: MessageWithImage[] = new Array(1000)
+export const messagesWithImage: MessageWithImage[] = new Array(100)
   .fill(true)
   .map((_, i) => ({
     uid: faker.string.uuid(),

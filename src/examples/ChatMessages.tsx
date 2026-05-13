@@ -26,7 +26,7 @@ function isLastItemVisible(instance: any) {
   )
 }
 
-export function RowVirtualizerDynamicWithImages() {
+export function ChatMessages() {
   const parentRef = React.useRef<HTMLDivElement>(null);
 
   const [enabled, setEnabled] = React.useState(true);

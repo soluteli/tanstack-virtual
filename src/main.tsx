@@ -6,7 +6,7 @@ import { ColumnVirtualizerDynamic } from './examples/ColumnVirtualizerDynamic'
 import { GridVirtualizerDynamic } from './examples/GridVirtualizerDynamic'
 import { generateColumns, generateData, RowVirtualizerExperimental } from './examples/RowVirtualizerExperimental'
 import { RowVirtualizerDynamic } from './examples/RowVirtualizerDynamic'
-import { RowVirtualizerDynamicWithImages } from './examples/RowVirtualizerDynamicWithImages'
+import { ChatMessages } from './examples/ChatMessages'
 
 import './index.css'
 
@@ -35,7 +35,7 @@ function App() {
             <a href="/experimental">Experimental</a>
           </li>
           <li>
-            <a href="/listwithimages">list with images</a>
+            <a href="/chat">chat</a>
           </li>
         </ul>
       </nav>
@@ -52,8 +52,8 @@ function App() {
           }
           case '/experimental':
             return <RowVirtualizerExperimental />
-          case '/listwithimages':
-            return <RowVirtualizerDynamicWithImages />
+          case '/chat':
+            return <ChatMessages />
           default:
             return <div>Not found</div>
         }
