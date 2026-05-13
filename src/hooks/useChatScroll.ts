@@ -1,17 +1,39 @@
-import { useCallback, useRef, useLayoutEffect, useEffect } from 'react';
-import { useVirtualizer, VirtualItem, type Virtualizer } from '@tanstack/react-virtual';
+import { useCallback, useRef, useLayoutEffect, useEffect } from "react";
+import {
+  useVirtualizer,
+  VirtualItem,
+  type Virtualizer,
+} from "@tanstack/react-virtual";
 
 export interface UseChatScrollOptions {
   count: number;
   getItemKey?: (index: number) => string | number;
-  getScrollElement: () => Element | null
+  getScrollElement: () => Element | null;
 }
 
 export interface UseChatScrollReturn {
   virtualizer: Virtualizer<Element, Element>;
   onItemSizeAsyncChange: () => void;
-  virtualItems: VirtualItem[]
+  virtualItems: VirtualItem[];
 }
+
+const isAtBottom = (instance: Virtualizer<Element, Element>) => {
+  const virtualItems = instance.getVirtualItems();
+  if (!virtualItems.length) return false;
+
+  const lastIndex = instance.options.count - 1;
+  const lastItem = virtualItems.find((item) => item.index === lastIndex);
+  if (!lastItem || !instance.scrollRect) return false;
+
+  const scrollOffset = instance.scrollOffset ?? 0;
+  const viewportTop = scrollOffset;
+  const viewportBottom = scrollOffset + instance.scrollRect.height;
+
+  const atBottom =
+    lastItem.end > viewportTop && lastItem.start < viewportBottom;
+
+  return atBottom
+};
 
 export function useChatScroll(
   options: UseChatScrollOptions,
@@ -32,29 +54,15 @@ export function useChatScroll(
     onChange: (instance, sync) => {
       if (!sync) return;
 
-      const virtualItems = instance.getVirtualItems();
-      if (!virtualItems.length) return;
-
-      const lastIndex = instance.options.count - 1;
-      const lastItem = virtualItems.find((item) => item.index === lastIndex);
-      if (!lastItem || !instance.scrollRect) return;
-
-      const scrollOffset = instance.scrollOffset ?? 0;
-      const viewportTop = scrollOffset;
-      const viewportBottom = scrollOffset + instance.scrollRect.height;
-
-      const atBottom = lastItem.end > viewportTop && lastItem.start < viewportBottom;
-
-      stickToBottomRef.current = atBottom;
+      stickToBottomRef.current = isAtBottom(instance);
     },
   });
 
   const _scrollToBottom = useCallback(() => {
     if (!count) return;
-    virtualizer.scrollToIndex(count - 1, { align: 'end' });
+    virtualizer.scrollToIndex(count - 1, { align: "end" });
   }, [count, virtualizer]);
 
-  
   const scheduleScrollToBottom = useCallback(() => {
     if (pendingScrollRef.current) return;
 
@@ -66,7 +74,7 @@ export function useChatScroll(
     });
   }, [_scrollToBottom]);
 
-    const onItemSizeAsyncChange = useCallback(() => {
+  const onItemSizeAsyncChange = useCallback(() => {
     if (stickToBottomRef.current) scheduleScrollToBottom();
   }, [scheduleScrollToBottom, stickToBottomRef]);
 
@@ -97,14 +105,12 @@ export function useChatScroll(
   }, [count, _scrollToBottom]);
 
   useEffect(() => {
-    console.log('virtualizer', virtualizer);
-    
-  }, [virtualizer])
-  
+    console.log("virtualizer", virtualizer);
+  }, [virtualizer]);
 
   return {
     virtualizer,
     onItemSizeAsyncChange,
-    virtualItems: virtualizer.getVirtualItems()
+    virtualItems: virtualizer.getVirtualItems(),
   };
 }
