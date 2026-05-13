@@ -9,12 +9,14 @@ export interface UseChatScrollOptions {
   count: number;
   getItemKey?: (index: number) => string | number;
   getScrollElement: () => Element | null;
+  onLoadHistory?: () => void;
 }
 
 export interface UseChatScrollReturn {
   virtualizer: Virtualizer<Element, Element>;
   onItemSizeAsyncChange: () => void;
   virtualItems: VirtualItem[];
+  totalHeight: number;
 }
 
 const isAtBottom = (instance: Virtualizer<Element, Element>) => {
@@ -32,29 +34,67 @@ const isAtBottom = (instance: Virtualizer<Element, Element>) => {
   const atBottom =
     lastItem.end > viewportTop && lastItem.start < viewportBottom;
 
-  return atBottom
+  return atBottom;
+};
+
+
+const isAtTop = (
+  instance: Virtualizer<Element, Element>,
+) => {
+  const virtualItems = instance.getVirtualItems()
+  return virtualItems[0].index <= 1
 };
 
 export function useChatScroll(
   options: UseChatScrollOptions,
 ): UseChatScrollReturn {
-  const { count, getItemKey, getScrollElement } = options;
+  const { count, getItemKey, getScrollElement, onLoadHistory } = options;
 
-  const itemsLengthRef = useRef(count);
   const stickToBottomRef = useRef(true);
   const initializedRef = useRef(false);
   const pendingScrollRef = useRef(false);
+  const isLoadingHistoryRef = useRef(false);
+  const onLoadHistoryRef = useRef(onLoadHistory);
+  onLoadHistoryRef.current = onLoadHistory;
 
+  const restoreRef = useRef<null | {
+    scrollTop: number
+    totalSize: number
+  }>(null)
+
+  const loadPrevious = useCallback(
+    async function(instance: Virtualizer<Element, Element>,) {
+    const el = instance.scrollElement
+    if (!el) return
+
+    restoreRef.current = {
+      scrollTop: el.scrollTop,
+      totalSize: virtualizer.getTotalSize(),
+    }
+
+    await onLoadHistoryRef.current?.();
+  },[])
+  
   const virtualizer = useVirtualizer({
     getScrollElement,
     count,
     estimateSize: () => 100,
-    overscan: 10,
+    overscan: 5,
     getItemKey,
     onChange: (instance, sync) => {
       if (!sync) return;
 
       stickToBottomRef.current = isAtBottom(instance);
+
+     const nearTop = isAtTop(instance);
+      if (nearTop && !isLoadingHistoryRef.current) {
+        isLoadingHistoryRef.current = true;
+        setTimeout(() => {
+          
+          loadPrevious(instance)
+        }, 2000);
+        // isLoadingHistoryRef.current = false;
+      }
     },
   });
 
@@ -75,8 +115,8 @@ export function useChatScroll(
   }, [_scrollToBottom]);
 
   const onItemSizeAsyncChange = useCallback(() => {
-    if (stickToBottomRef.current) scheduleScrollToBottom();
-  }, [scheduleScrollToBottom, stickToBottomRef]);
+    if (stickToBottomRef.current && !virtualizer.isScrolling) scheduleScrollToBottom();
+  }, [scheduleScrollToBottom, stickToBottomRef, virtualizer]);
 
   // 首次进入列表滚到底
   useLayoutEffect(() => {
@@ -91,26 +131,28 @@ export function useChatScroll(
     });
   }, [count, _scrollToBottom]);
 
-  // 新消息追加时：如果用户仍在底部，则继续保持底部
   useLayoutEffect(() => {
+    if (!count) return;
     if (!initializedRef.current) return;
-    if (count === itemsLengthRef.current) return;
-    itemsLengthRef.current = count;
+    const restore = restoreRef.current
+    if (!restore) return
 
-    if (stickToBottomRef.current) {
-      requestAnimationFrame(() => {
-        _scrollToBottom();
-      });
-    }
-  }, [count, _scrollToBottom]);
+    // FIXME: 会有一点偏差,后续固定 image size 后再做调整
+    const nextTotalSize = virtualizer.getTotalSize()
+    const addedHeight = nextTotalSize - restore.totalSize
+    virtualizer.scrollToOffset(restore.scrollTop + addedHeight)
+    restoreRef.current = null
+  }, [count, virtualizer]);
+
+
 
   useEffect(() => {
-    console.log("virtualizer", virtualizer);
   }, [virtualizer]);
 
   return {
     virtualizer,
     onItemSizeAsyncChange,
     virtualItems: virtualizer.getVirtualItems(),
+    totalHeight: virtualizer.getTotalSize()
   };
 }

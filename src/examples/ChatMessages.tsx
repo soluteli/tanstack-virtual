@@ -11,12 +11,20 @@ export function ChatMessages() {
   const [messagesList, setMessagesListData] = useState(() =>
     genMessagesListHistory({ start: 90, size: PAGE_SIZE }),
   );
+  console.log("🚀 ~ ChatMessages ~ messagesList:", messagesList.length)
 
   const handleLoadHistoryData = () => {
+    console.log("🚀 ~ handleLoadHistoryData ~ handleLoadHistoryData:")
     setMessagesListData((prev) => {
       const oldestId = prev[0].id
+      if (oldestId <=0) {
+        return prev
+      }
+      console.log("🚀 ~ handleLoadHistoryData ~ prev:", prev)
+      const newPrependData = genMessagesListHistory({ end: oldestId, size: PAGE_SIZE })
+      console.log("🚀 ~ handleLoadHistoryData ~ newPrependData:", newPrependData)
       return [
-        ...genMessagesListHistory({ end: oldestId, size: PAGE_SIZE }),
+        ...newPrependData,
         ...prev,
       ]
     })
@@ -34,10 +42,12 @@ export function ChatMessages() {
     virtualizer,
     onItemSizeAsyncChange,
     virtualItems: listData,
+    totalHeight
   } = useChatScroll({
     getScrollElement: () => parentRef.current,
     count: messagesList.length,
     getItemKey: (index: number) => messagesList[index].id,
+    onLoadHistory: handleLoadHistoryData
   });
 
   return (
@@ -82,7 +92,7 @@ export function ChatMessages() {
       >
         <div
           style={{
-            height: virtualizer.getTotalSize(),
+            height:    totalHeight,
             width: "100%",
             position: "relative",
           }}
@@ -110,11 +120,14 @@ export function ChatMessages() {
                   <div style={{ padding: "10px 0" }}>
                     <div>Row {currentItem.id}</div>
                     <div>{currentItem.text}</div>
+                    {
+                      currentItem.imageUrl &&
                     <img
                       width="50%"
                       src={currentItem.imageUrl}
                       onLoad={onItemSizeAsyncChange}
                     />
+                    }
                   </div>
                 </div>
               );

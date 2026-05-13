@@ -11,7 +11,7 @@ export interface MessageWithImage {
   uid: string
   id: number
   text: string
-  imageUrl: string
+  imageUrl?: string
 }
 
 interface GenMessagesListHistoryParams {
