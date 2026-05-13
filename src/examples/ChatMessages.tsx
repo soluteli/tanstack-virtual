@@ -3,12 +3,32 @@ import { genMessagesListHistory } from "../utils/mockdata";
 import { useChatScroll } from "../hooks/useChatScroll";
 import { VirtualItem } from "@tanstack/react-virtual";
 
+const PAGE_SIZE = 20
+
 export function ChatMessages() {
   const parentRef = React.useRef<HTMLDivElement>(null);
 
-  const [messagesList] = useState(() =>
-    genMessagesListHistory({ start: 90, size: 20 }),
+  const [messagesList, setMessagesListData] = useState(() =>
+    genMessagesListHistory({ start: 90, size: PAGE_SIZE }),
   );
+
+  const handleLoadHistoryData = () => {
+    setMessagesListData((prev) => {
+      const oldestId = prev[0].id
+      return [
+        ...genMessagesListHistory({ end: oldestId, size: PAGE_SIZE }),
+        ...prev,
+      ]
+    })
+  }
+
+  const handleLoadUpcomingData = () => {
+    const newestId = messagesList[messagesList.length - 1].id
+    setMessagesListData((prev) => [
+      ...prev,
+      ...genMessagesListHistory({ start: newestId + 1, size: PAGE_SIZE }),
+    ])
+  }
 
   const {
     virtualizer,
