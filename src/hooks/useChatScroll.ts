@@ -75,8 +75,7 @@ export function useChatScroll<TMessage>(
 
   const stickToBottomRef = useRef(true);
   const initializedRef = useRef(false);
-  const pendingScrollRef = useRef(false);
-
+  const pendingScrollToBottomRef = useRef(false);
   const isLoadingUpperRef = useRef(false);
 
   const onLoadUpperRef = useRef(onLoadUpper);
@@ -209,12 +208,12 @@ export function useChatScroll<TMessage>(
   );
 
   const scheduleScrollToBottom = useCallback(() => {
-    if (pendingScrollRef.current) return;
+    if (pendingScrollToBottomRef.current) return;
 
-    pendingScrollRef.current = true;
+    pendingScrollToBottomRef.current = true;
 
     requestAnimationFrame(() => {
-      pendingScrollRef.current = false;
+      pendingScrollToBottomRef.current = false;
       _scrollToBottom();
     });
   }, [_scrollToBottom]);
