@@ -1,7 +1,6 @@
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback } from "react";
 import { genMessagesListHistory } from "../utils/mockdata";
 import { useChatScroll } from "../hooks/useChatScroll";
-import { VirtualItem } from "@tanstack/react-virtual";
 
 const PAGE_SIZE = 20
 
@@ -40,27 +39,16 @@ export function ChatMessages() {
     ])
   }
 
-  const totalCount = useMemo(() => {
-    let extraNum = 0
-    let _totalCount = messagesList.length
-    if (hasUpper) {
-      _totalCount += extraNum
-    }
-    return _totalCount
-  }, [messagesList, hasUpper])
-
   const {
     virtualizer,
     // onItemSizeAsyncChange,
-    virtualItems: listData,
+    virtualRows: listData,
+    scrollToMessageIndex,
     totalHeight
   } = useChatScroll({
     getScrollElement: () => parentRef.current,
-    count: totalCount,
-    getItemKey: (index: number) => {
-      if (hasUpper && index === 0) {return 'upper-loading'}
-      return messagesList[index].id
-    },
+    messages: messagesList,
+    getMessageKey: (message) => message.id,
     onLoadUpper: handleLoadUpper,
     hasUpper
   });
@@ -69,7 +57,7 @@ export function ChatMessages() {
     <div>
       <button
         onClick={() => {
-          virtualizer.scrollToIndex(0);
+          scrollToMessageIndex(0);
         }}
       >
         scroll to the top
@@ -77,7 +65,7 @@ export function ChatMessages() {
       <span style={{ padding: "0 4px" }} />
       <button
         onClick={() => {
-          virtualizer.scrollToIndex(messagesList.length / 2, {
+          scrollToMessageIndex(Math.floor(messagesList.length / 2), {
             behavior: "smooth",
           });
         }}
@@ -87,10 +75,14 @@ export function ChatMessages() {
       <span style={{ padding: "0 4px" }} />
       <button
         onClick={() => {
-          virtualizer.scrollToIndex(messagesList.length - 1);
+          scrollToMessageIndex(messagesList.length - 1);
         }}
       >
         scroll to the end
+      </button>
+      <span style={{ padding: "0 4px" }} />
+      <button onClick={handleLoadBottom}>
+        load bottom
       </button>
       <span style={{ padding: "0 4px" }} />
       <hr />
@@ -118,11 +110,12 @@ export function ChatMessages() {
               top: 0,
               left: 0,
               width: "100%",
-              transform: `translateY(${listData[0]?.start ?? 0}px)`,
+              transform: `translateY(${listData[0]?.virtualItem.start ?? 0}px)`,
             }}
           >
-            {listData.map((virtualRow: VirtualItem) => {
-              if (virtualRow.key === 'upper-loading') {
+            {listData.map((row) => {
+              const virtualRow = row.virtualItem
+              if (row.type === 'upper-loading') {
                 return <div
                   key={virtualRow.key}
                   data-index={virtualRow.index}
@@ -131,8 +124,7 @@ export function ChatMessages() {
                   loading...
                 </div>
               }
-              const rawIndex = hasUpper ? virtualRow.index -1 : virtualRow.index
-              const currentItem = messagesList[virtualRow.index]
+              const currentItem = row.message
               return (
                 <div
                   key={virtualRow.key}
