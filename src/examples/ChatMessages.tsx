@@ -9,7 +9,7 @@ import {
   getInitialChatMessages,
   getOldestMessageId,
   hasUpperMessages,
-} from "./chatMessagesDemoData";
+} from "../utils/chatMessagesDemoData";
 
 function MessageRow({ message }: { message: MessageWithImage }) {
   return (
