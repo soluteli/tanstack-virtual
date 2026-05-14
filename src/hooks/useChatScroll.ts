@@ -38,6 +38,7 @@ type MessageKey = string | number;
 
 interface UpperAnchor {
   messageKey: MessageKey;
+  // prepend 历史消息后，让锚定的 message 维持在同一个 viewport 偏移。
   offsetFromViewportTop: number;
 }
 
@@ -86,6 +87,7 @@ export function useChatScroll<TMessage>(
 
   const upperAnchorRef = useRef<UpperAnchor | null>(null);
 
+  // virtual index 包含可选的 upper-loading 行，message index 只对应 messages。
   const getMessageIndex = useCallback(
     (virtualIndex: number) => virtualIndex - Number(hasUpper),
     [hasUpper],
@@ -107,8 +109,9 @@ export function useChatScroll<TMessage>(
       const scrollOffset = instance.scrollOffset ?? 0;
       const virtualItems = instance.getVirtualItems();
       const firstVisibleMessage = virtualItems.find((virtualItem) => {
+        // upper-loading 是列表状态 UI，不作为用户正在阅读的 message 锚点。
         if (hasUpper && virtualItem.index === 0) return false;
-        if (virtualItem.end <= scrollOffset) return false;
+        if (virtualItem.start < scrollOffset) return false;
 
         const messageIndex = getMessageIndex(virtualItem.index);
         return messageIndex >= 0 && messageIndex < messages.length;
@@ -122,6 +125,7 @@ export function useChatScroll<TMessage>(
 
       return {
         messageKey,
+        // 用这个偏移在 prepend 后把同一条 message 恢复到相同 viewport 位置。
         offsetFromViewportTop: firstVisibleMessage.start - scrollOffset,
       };
     },
@@ -142,6 +146,7 @@ export function useChatScroll<TMessage>(
     instance: Virtualizer<Element, Element>,
   ) {
     if (!hasUpperRef.current) return;
+    // 在异步 prepend 改变 index 之前，先记录当前 viewport 锚点。
     updateUpperAnchor(instance);
     await onLoadUpperRef.current?.();
   }, [updateUpperAnchor]);
@@ -171,6 +176,7 @@ export function useChatScroll<TMessage>(
       }
 
       if (isLoadingUpperRef.current) {
+        // loading 期间如果用户继续滚动，以用户最新看到的 message 作为锚点。
         updateUpperAnchor(instance);
       }
 
@@ -195,6 +201,7 @@ export function useChatScroll<TMessage>(
     (index: number, options?: ScrollToOptions) => {
       if (index < 0 || index >= messages.length) return;
 
+      // 外部按 message index 滚动，hook 内部隐藏 loading row 带来的偏移。
       const virtualIndex = getVirtualIndex(index);
       virtualizer.scrollToIndex(virtualIndex, options);
     },
@@ -244,6 +251,7 @@ export function useChatScroll<TMessage>(
 
       if (messageIndex !== -1) {
         const virtualIndex = getVirtualIndex(messageIndex);
+        // 优先使用 measured data，必要时 fallback 到 TanStack 计算出的 offset。
         const measurement = virtualizer.measurementsCache.find(
           (item) => item.index === virtualIndex,
         );
