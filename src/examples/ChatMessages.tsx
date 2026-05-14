@@ -1,9 +1,13 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import { genMessagesListHistory } from "../utils/mockdata";
 import { useChatScroll } from "../hooks/useChatScroll";
 import { VirtualItem } from "@tanstack/react-virtual";
 
 const PAGE_SIZE = 20
+
+const delay = (duration: number) => new Promise<void>((resolve) => {
+  setTimeout(resolve, duration);
+})
 
 export function ChatMessages() {
   const parentRef = React.useRef<HTMLDivElement>(null);
@@ -11,24 +15,17 @@ export function ChatMessages() {
   const [messagesList, setMessagesListData] = useState(() =>
     genMessagesListHistory({ start: 90, size: PAGE_SIZE }),
   );
-  console.log("🚀 ~ ChatMessages ~ messagesList:", messagesList.length)
 
-  const handleLoadUpper = () => {
-    console.log("🚀 ~ handleLoadHistoryData ~ handleLoadHistoryData:")
-    setMessagesListData((prev) => {
-      const oldestId = prev[0].id
-      if (oldestId <=0) {
-        return prev
-      }
-      console.log("🚀 ~ handleLoadHistoryData ~ prev:", prev)
-      const newPrependData = genMessagesListHistory({ end: oldestId, size: PAGE_SIZE })
-      console.log("🚀 ~ handleLoadHistoryData ~ newPrependData:", newPrependData)
-      return [
+  const handleLoadUpper = useCallback(async () => {
+    const oldestId = messagesList[0].id
+    console.log("🚀 ~ ChatMessages ~ oldestId:", oldestId)
+    const newPrependData = genMessagesListHistory({ end: oldestId, size: PAGE_SIZE })
+    await delay(2000)
+    setMessagesListData([
         ...newPrependData,
-        ...prev,
-      ]
-    })
-  }
+        ...messagesList,
+      ])
+  }, [messagesList])
 
   const handleLoadBottom = () => {
     const newestId = messagesList[messagesList.length - 1].id
@@ -123,7 +120,8 @@ export function ChatMessages() {
                     {
                       currentItem.imageUrl &&
                     <img
-                      width="50%"
+                      width="auto"
+                      height={30}
                       src={currentItem.imageUrl}
                       onLoad={onItemSizeAsyncChange}
                     />

@@ -38,12 +38,9 @@ const isAtBottom = (instance: Virtualizer<Element, Element>) => {
   return atBottom;
 };
 
-
-const isAtTop = (
-  instance: Virtualizer<Element, Element>,
-) => {
-  const virtualItems = instance.getVirtualItems()
-  return virtualItems[0].index <= 1
+const isAtTop = (instance: Virtualizer<Element, Element>) => {
+  const virtualItems = instance.getVirtualItems();
+  return virtualItems[0].index <= 1;
 };
 
 export function useChatScroll(
@@ -61,42 +58,38 @@ export function useChatScroll(
   onLoadUpperRef.current = onLoadUpper;
 
   const restoreRef = useRef<null | {
-    scrollTop: number
-    totalSize: number
-  }>(null)
+    scrollOffset: number;
+    totalSize: number;
+  }>(null);
 
-  const loadPrevious = useCallback(
-    async function(instance: Virtualizer<Element, Element>,) {
-    const el = instance.scrollElement
-    if (!el) return
-
+  const loadPrevious = useCallback(async function (
+    instance: Virtualizer<Element, Element>,
+  ) {
     restoreRef.current = {
-      scrollTop: el.scrollTop,
-      totalSize: virtualizer.getTotalSize(),
-    }
+      scrollOffset: instance.scrollOffset ?? 0,
+      totalSize: instance.getTotalSize(),
+    };
+    console.log("🚀 ~ useChatScroll ~ restoreRef.current:", restoreRef.current)
 
     await onLoadUpperRef.current?.();
-  },[])
-  
+  }, []);
+
   const virtualizer = useVirtualizer({
     getScrollElement,
     count,
-    estimateSize: () => 100,
+    estimateSize: () => 150,
     overscan: 5,
     getItemKey,
-    onChange: (instance, sync) => {
+    onChange: async (instance, sync) => {
       if (!sync) return;
 
       stickToBottomRef.current = isAtBottom(instance);
 
-     const nearTop = isAtTop(instance);
+      const nearTop = isAtTop(instance);
       if (nearTop && !isLoadingUpperRef.current) {
         isLoadingUpperRef.current = true;
-        setTimeout(() => {
-          
-          loadPrevious(instance)
-        }, 2000);
-        // isLoadingHistoryRef.current = false;
+        await loadPrevious(instance);
+        isLoadingUpperRef.current = false;
       }
     },
   });
@@ -118,7 +111,8 @@ export function useChatScroll(
   }, [_scrollToBottom]);
 
   const onItemSizeAsyncChange = useCallback(() => {
-    if (stickToBottomRef.current && !virtualizer.isScrolling) scheduleScrollToBottom();
+    if (stickToBottomRef.current && !virtualizer.isScrolling)
+      scheduleScrollToBottom();
   }, [scheduleScrollToBottom, stickToBottomRef, virtualizer]);
 
   // 首次进入列表滚到底
@@ -137,25 +131,24 @@ export function useChatScroll(
   useLayoutEffect(() => {
     if (!count) return;
     if (!initializedRef.current) return;
-    const restore = restoreRef.current
-    if (!restore) return
+    const restore = restoreRef.current;
+    if (!restore) return;
 
-    // FIXME: 会有一点偏差,后续固定 image size 后再做调整
-    const nextTotalSize = virtualizer.getTotalSize()
-    const addedHeight = nextTotalSize - restore.totalSize
-    virtualizer.scrollToOffset(restore.scrollTop + addedHeight)
-    restoreRef.current = null
+    // FIXME: 会有一点偏差,后续固定 image size 后,可能可以解决该问题
+    const nextTotalSize = virtualizer.getTotalSize();
+    const addedHeight = nextTotalSize - restore.totalSize;
+    console.log("🚀 ~ useChatScroll ~ addedHeight:", addedHeight)
+    console.log("🚀 ~ useChatScroll ~ nextTotalSize:", nextTotalSize)
+    virtualizer.scrollToOffset(restore.scrollOffset + addedHeight);
+    restoreRef.current = null;
   }, [count, virtualizer]);
 
-
-
-  useEffect(() => {
-  }, [virtualizer]);
+  useEffect(() => {}, [virtualizer]);
 
   return {
     virtualizer,
     onItemSizeAsyncChange,
     virtualItems: virtualizer.getVirtualItems(),
-    totalHeight: virtualizer.getTotalSize()
+    totalHeight: virtualizer.getTotalSize(),
   };
 }
