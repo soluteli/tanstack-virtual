@@ -46,7 +46,8 @@ const isAtTop = (instance: Virtualizer<Element, Element>) => {
 export function useChatScroll(
   options: UseChatScrollOptions,
 ): UseChatScrollReturn {
-  const { count, getItemKey, getScrollElement, onLoadUpper } = options;
+  const { count, getItemKey, getScrollElement, onLoadUpper, hasUpper } =
+    options;
 
   const stickToBottomRef = useRef(true);
   const initializedRef = useRef(false);
@@ -57,20 +58,20 @@ export function useChatScroll(
   const onLoadUpperRef = useRef(onLoadUpper);
   onLoadUpperRef.current = onLoadUpper;
 
-  const restoreRef = useRef<null | {
-    scrollOffset: number;
+  const hasUpperRef = useRef(hasUpper);
+  hasUpperRef.current = hasUpper;
+
+  const restoreUpperRef = useRef<null | {
     totalSize: number;
   }>(null);
 
   const loadPrevious = useCallback(async function (
     instance: Virtualizer<Element, Element>,
   ) {
-    restoreRef.current = {
-      scrollOffset: instance.scrollOffset ?? 0,
+    if (!hasUpperRef.current) return;
+    restoreUpperRef.current = {
       totalSize: instance.getTotalSize(),
     };
-    console.log("🚀 ~ useChatScroll ~ restoreRef.current:", restoreRef.current)
-
     await onLoadUpperRef.current?.();
   }, []);
 
@@ -84,14 +85,20 @@ export function useChatScroll(
       if (!sync) return;
 
       stickToBottomRef.current = isAtBottom(instance);
+      if (stickToBottomRef.current) {
+        restoreUpperRef.current = null;
+      }
 
       const nearTop = isAtTop(instance);
       if (nearTop && !isLoadingUpperRef.current) {
         isLoadingUpperRef.current = true;
-        await loadPrevious(instance);
+        try {
+          await loadPrevious(instance);
+        } catch (error) {}
         isLoadingUpperRef.current = false;
       }
     },
+    useFlushSync: false,
   });
 
   const _scrollToBottom = useCallback(() => {
@@ -129,18 +136,18 @@ export function useChatScroll(
   }, [count, _scrollToBottom]);
 
   useLayoutEffect(() => {
-    if (!count) return;
-    if (!initializedRef.current) return;
-    const restore = restoreRef.current;
-    if (!restore) return;
-
-    // FIXME: 会有一点偏差,后续固定 image size 后,可能可以解决该问题
-    const nextTotalSize = virtualizer.getTotalSize();
-    const addedHeight = nextTotalSize - restore.totalSize;
-    console.log("🚀 ~ useChatScroll ~ addedHeight:", addedHeight)
-    console.log("🚀 ~ useChatScroll ~ nextTotalSize:", nextTotalSize)
-    virtualizer.scrollToOffset(restore.scrollOffset + addedHeight);
-    restoreRef.current = null;
+    const restore = restoreUpperRef.current;
+    if (restore) {
+      /**
+       * !FIXME
+       * 1. 消息组件需要定高，如果异步组件不定高，在 loadUpper 后上方的组件高度变化会导致滚动位置不准
+       * 2. 当前没有处理： loadUpper 开始后，向下滚动，loadUpper 完成，滚动位置会跳回 loadUpper 开始时的位置
+       */
+      const nextTotalSize = virtualizer.getTotalSize();
+      const addedHeight = nextTotalSize - restore.totalSize;
+      virtualizer.scrollToOffset(addedHeight);
+      restoreUpperRef.current = null;
+    }
   }, [count, virtualizer]);
 
   useEffect(() => {}, [virtualizer]);

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import { genMessagesListHistory } from "../utils/mockdata";
 import { useChatScroll } from "../hooks/useChatScroll";
 import { VirtualItem } from "@tanstack/react-virtual";
@@ -12,6 +12,9 @@ const delay = (duration: number) => new Promise<void>((resolve) => {
 export function ChatMessages() {
   const parentRef = React.useRef<HTMLDivElement>(null);
 
+  const [hasUpper, setHasUpper] = useState(true)
+
+
   const [messagesList, setMessagesListData] = useState(() =>
     genMessagesListHistory({ start: 90, size: PAGE_SIZE }),
   );
@@ -20,7 +23,9 @@ export function ChatMessages() {
     const oldestId = messagesList[0].id
     console.log("🚀 ~ ChatMessages ~ oldestId:", oldestId)
     const newPrependData = genMessagesListHistory({ end: oldestId, size: PAGE_SIZE })
+    const _hasUpper = newPrependData.length === PAGE_SIZE
     await delay(2000)
+    setHasUpper(_hasUpper)
     setMessagesListData([
         ...newPrependData,
         ...messagesList,
@@ -35,16 +40,29 @@ export function ChatMessages() {
     ])
   }
 
+  const totalCount = useMemo(() => {
+    let extraNum = 0
+    let _totalCount = messagesList.length
+    if (hasUpper) {
+      _totalCount += extraNum
+    }
+    return _totalCount
+  }, [messagesList, hasUpper])
+
   const {
     virtualizer,
-    onItemSizeAsyncChange,
+    // onItemSizeAsyncChange,
     virtualItems: listData,
     totalHeight
   } = useChatScroll({
     getScrollElement: () => parentRef.current,
-    count: messagesList.length,
-    getItemKey: (index: number) => messagesList[index].id,
-    onLoadUpper: handleLoadUpper
+    count: totalCount,
+    getItemKey: (index: number) => {
+      if (hasUpper && index === 0) {return 'upper-loading'}
+      return messagesList[index].id
+    },
+    onLoadUpper: handleLoadUpper,
+    hasUpper
   });
 
   return (
@@ -104,6 +122,16 @@ export function ChatMessages() {
             }}
           >
             {listData.map((virtualRow: VirtualItem) => {
+              if (virtualRow.key === 'upper-loading') {
+                return <div
+                  key={virtualRow.key}
+                  data-index={virtualRow.index}
+                  ref={virtualizer.measureElement}
+                >
+                  loading...
+                </div>
+              }
+              const rawIndex = hasUpper ? virtualRow.index -1 : virtualRow.index
               const currentItem = messagesList[virtualRow.index]
               return (
                 <div
@@ -120,10 +148,10 @@ export function ChatMessages() {
                     {
                       currentItem.imageUrl &&
                     <img
-                      width="auto"
+                      // width="50%"
                       height={30}
                       src={currentItem.imageUrl}
-                      onLoad={onItemSizeAsyncChange}
+                      // onLoad={onItemSizeAsyncChange}
                     />
                     }
                   </div>
