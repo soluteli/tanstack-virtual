@@ -84,10 +84,11 @@ const isAtTop = (instance: Virtualizer<Element, Element>) => {
   return (virtualItems[0]?.index ?? 0) <= 1;
 };
 
+// FIX: 考虑一下 overscan
 export const isAtBottom = (instance: Virtualizer<Element, Element>) => {
   const virtualItems = instance.getVirtualItems();
   return (virtualItems[virtualItems.length - 1]?.index ?? -1) >=
-    instance.options.count - 2;
+    instance.options.count - 1;
 };
 
 export function useChatScroll<TMessage>(
@@ -288,20 +289,19 @@ export function useChatScroll<TMessage>(
     [chatRows, messages.length, virtualizer],
   );
 
-  const scheduleScrollToBottom = useCallback(() => {
+  const scheduleScrollToBottom = useCallback((options?: ScrollToOptions) => {
     if (pendingScrollToBottomRef.current) return;
-
     pendingScrollToBottomRef.current = true;
 
     requestAnimationFrame(() => {
       pendingScrollToBottomRef.current = false;
-      scrollToLoadedBottom();
+      scrollToLoadedBottom(options);
     });
   }, [scrollToLoadedBottom]);
 
   const onItemSizeAsyncChange = useCallback(() => {
     if (stickToBottomRef.current && !virtualizer.isScrolling)
-      scheduleScrollToBottom();
+      scheduleScrollToBottom({behavior: 'instant'});
   }, [scheduleScrollToBottom, virtualizer]);
 
   // 首次进入列表滚到底
@@ -309,7 +309,7 @@ export function useChatScroll<TMessage>(
     if (initializedRef.current) return;
 
     initializedRef.current = true;
-    scheduleScrollToBottom()
+    scheduleScrollToBottom({behavior: 'instant'});
   }, [messages.length, scheduleScrollToBottom]);
 
   // 新消息 append 进入列表滚到底
