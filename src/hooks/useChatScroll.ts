@@ -108,8 +108,8 @@ export function useChatScroll<TMessage>(
   const pendingScrollToBottomRef = useRef(false);
   const isLoadingUpperRef = useRef(false);
   const isLoadingBottomRef = useRef(false);
-  const onLoadUpperRef = useRef(onLoadUpper);
 
+  const onLoadUpperRef = useRef(onLoadUpper);
   onLoadUpperRef.current = onLoadUpper;
 
   const hasUpperRef = useRef(hasUpper);
@@ -122,6 +122,14 @@ export function useChatScroll<TMessage>(
   hasBottomRef.current = hasBottom;
 
   const upperAnchorRef = useRef<UpperAnchor | null>(null);
+
+  const prevTotalMessagesCount = useRef(messages.length)
+  const totalCountDelta = useRef(0)
+  useLayoutEffect(() => {
+    totalCountDelta.current = messages.length - prevTotalMessagesCount.current
+  
+    prevTotalMessagesCount.current = messages.length
+  }, [messages.length])
 
   const getMessageKeyValue = useCallback(
     (message: TMessage, index: number): MessageKey =>
@@ -259,6 +267,7 @@ export function useChatScroll<TMessage>(
 
       virtualizer.scrollToIndex(loadedBottomIndex, {
         align: "end",
+        behavior: 'smooth',
         ...options,
       });
     },
@@ -300,11 +309,21 @@ export function useChatScroll<TMessage>(
     if (initializedRef.current) return;
 
     initializedRef.current = true;
-    requestAnimationFrame(() => {
-      scrollToLoadedBottom();
-    });
-  }, [messages.length, scrollToLoadedBottom]);
+    scheduleScrollToBottom()
+  }, [messages.length, scheduleScrollToBottom]);
 
+  // 新消息 append 进入列表滚到底
+  useLayoutEffect(() => {
+    if (!initializedRef.current) return;
+
+    // 数量变多，并且在底部
+    if (totalCountDelta.current > 0 && isAtBottom(virtualizer)) {
+      scheduleScrollToBottom()
+    }
+    totalCountDelta.current = 0
+  }, [messages.length, scheduleScrollToBottom]);
+
+  // 维持 prepend 场景下的滚动位置
   useLayoutEffect(() => {
     const anchor = upperAnchorRef.current;
     if (anchor) {

@@ -152,7 +152,6 @@ export function useChatMessagesController<TMessage>({
         if (!shouldApplyTransition(currentState.messages, options?.guard)) {
           return currentState;
         }
-
         const shouldAppend = options?.appendToWindow ?? true;
         const newMessageCount = options?.countAsNew
           ? currentState.newMessageCount + messages.length
