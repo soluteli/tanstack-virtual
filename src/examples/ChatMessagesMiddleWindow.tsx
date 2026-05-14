@@ -1,9 +1,7 @@
-import React from "react";
+import React, { useLayoutEffect, useState } from "react";
 import { useChatMessagesController } from "../hooks/useChatMessagesController";
 import { useChatScroll } from "../hooks/useChatScroll";
 import type { MessageWithImage } from "../utils/mockdata";
-
-const PAGE_SIZE = 20;
 
 function MessageRow({ message }: { message: MessageWithImage }) {
   return (
@@ -17,52 +15,45 @@ function MessageRow({ message }: { message: MessageWithImage }) {
   );
 }
 
-export function ChatMessages() {
+export function ChatMessagesMiddleWindow() {
   const parentRef = React.useRef<HTMLDivElement>(null);
-  
-  const controller = useChatMessagesController({
-    initialMode: "middle",
-    pageSize: PAGE_SIZE,
-  });
-
+  const [shouldScrollAfterJump, setShouldScrollAfterJump] = useState(false);
+  const controller = useChatMessagesController({ initialMode: "middle" });
   const scroll = useChatScroll({
     getScrollElement: () => parentRef.current,
     messages: controller.messages,
     getMessageKey: (message) => message.id,
     onLoadUpper: controller.loadUpper,
     hasUpper: controller.hasUpper,
+    onLoadBottom: controller.loadBottom,
+    hasBottom: controller.hasBottom,
   });
+
+  useLayoutEffect(() => {
+    if (!shouldScrollAfterJump) return;
+
+    requestAnimationFrame(() => {
+      scroll.scrollToLoadedBottom();
+      setShouldScrollAfterJump(false);
+    });
+  }, [scroll.scrollToLoadedBottom, shouldScrollAfterJump]);
 
   return (
     <div>
       <button
         onClick={() => {
-          scroll.scrollToMessageIndex(0);
+          controller.jumpToLatest();
+          setShouldScrollAfterJump(true);
         }}
       >
-        scroll to the top
+        跳到真正最新
       </button>
-      <span style={{ padding: "0 4px" }} />
-      <button
-        onClick={() => {
-          scroll.scrollToMessageIndex(
-            Math.floor(controller.messages.length / 2),
-            { behavior: "smooth" },
-          );
-        }}
-      >
-        scroll to the middle
-      </button>
-      <span style={{ padding: "0 4px" }} />
-      <button
-        onClick={() => {
-          scroll.scrollToLoadedBottom();
-        }}
-      >
-        scroll to loaded bottom
-      </button>
-      <span style={{ padding: "0 4px" }} />
-      <span style={{ padding: "0 4px" }} />
+      <span style={{ padding: "0 8px" }}>
+        isAtLoadedBottom: {String(scroll.isAtLoadedBottom)}
+      </span>
+      <span style={{ padding: "0 8px" }}>
+        isAtConversationLatest: {String(scroll.isAtConversationLatest)}
+      </span>
       <hr />
       <div
         ref={parentRef}

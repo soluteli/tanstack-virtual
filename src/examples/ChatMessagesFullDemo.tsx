@@ -1,9 +1,7 @@
-import React from "react";
+import React, { useEffect, useLayoutEffect, useState } from "react";
 import { useChatMessagesController } from "../hooks/useChatMessagesController";
 import { useChatScroll } from "../hooks/useChatScroll";
 import type { MessageWithImage } from "../utils/mockdata";
-
-const PAGE_SIZE = 20;
 
 function MessageRow({ message }: { message: MessageWithImage }) {
   return (
@@ -17,52 +15,59 @@ function MessageRow({ message }: { message: MessageWithImage }) {
   );
 }
 
-export function ChatMessages() {
+export function ChatMessagesFullDemo() {
   const parentRef = React.useRef<HTMLDivElement>(null);
-  
-  const controller = useChatMessagesController({
-    initialMode: "middle",
-    pageSize: PAGE_SIZE,
-  });
-
+  const [shouldScrollAfterJump, setShouldScrollAfterJump] = useState(false);
+  const controller = useChatMessagesController({ initialMode: "middle" });
   const scroll = useChatScroll({
     getScrollElement: () => parentRef.current,
     messages: controller.messages,
     getMessageKey: (message) => message.id,
     onLoadUpper: controller.loadUpper,
     hasUpper: controller.hasUpper,
+    onLoadBottom: controller.loadBottom,
+    hasBottom: controller.hasBottom,
   });
 
+  useEffect(() => {
+    if (scroll.isAtConversationLatest) {
+      controller.clearNewMessageCount();
+    }
+  }, [controller.clearNewMessageCount, scroll.isAtConversationLatest]);
+
+  useLayoutEffect(() => {
+    if (!shouldScrollAfterJump) return;
+
+    requestAnimationFrame(() => {
+      scroll.scrollToLoadedBottom();
+      setShouldScrollAfterJump(false);
+    });
+  }, [scroll.scrollToLoadedBottom, shouldScrollAfterJump]);
+
+  const pushMessages = (count: number) => {
+    controller.pushMessages(count, {
+      countAsNew: !scroll.isAtConversationLatest,
+    });
+  };
+
+  const jumpToLatest = () => {
+    controller.jumpToLatest();
+    setShouldScrollAfterJump(true);
+  };
+
   return (
-    <div>
-      <button
-        onClick={() => {
-          scroll.scrollToMessageIndex(0);
-        }}
-      >
-        scroll to the top
-      </button>
+    <div style={{ position: "relative" }}>
+      <button onClick={() => pushMessages(1)}>push 1</button>
       <span style={{ padding: "0 4px" }} />
-      <button
-        onClick={() => {
-          scroll.scrollToMessageIndex(
-            Math.floor(controller.messages.length / 2),
-            { behavior: "smooth" },
-          );
-        }}
-      >
-        scroll to the middle
-      </button>
+      <button onClick={() => pushMessages(5)}>push 5</button>
       <span style={{ padding: "0 4px" }} />
-      <button
-        onClick={() => {
-          scroll.scrollToLoadedBottom();
-        }}
-      >
-        scroll to loaded bottom
-      </button>
-      <span style={{ padding: "0 4px" }} />
-      <span style={{ padding: "0 4px" }} />
+      <button onClick={jumpToLatest}>跳到真正最新</button>
+      <span style={{ padding: "0 8px" }}>
+        isAtLoadedBottom: {String(scroll.isAtLoadedBottom)}
+      </span>
+      <span style={{ padding: "0 8px" }}>
+        isAtConversationLatest: {String(scroll.isAtConversationLatest)}
+      </span>
       <hr />
       <div
         ref={parentRef}
@@ -136,6 +141,19 @@ export function ChatMessages() {
           </div>
         </div>
       </div>
+      {controller.newMessageCount > 0 ? (
+        <button
+          onClick={jumpToLatest}
+          style={{
+            position: "fixed",
+            right: 24,
+            bottom: 24,
+            zIndex: 1,
+          }}
+        >
+          {controller.newMessageCount} 条新消息
+        </button>
+      ) : null}
     </div>
   );
 }
