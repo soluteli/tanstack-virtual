@@ -34,6 +34,13 @@ export interface UseChatScrollReturn<TMessage> {
   totalHeight: number;
 }
 
+type MessageKey = string | number;
+
+interface UpperAnchor {
+  messageKey: MessageKey;
+  offsetFromViewportTop: number;
+}
+
 const isAtBottom = (instance: Virtualizer<Element, Element>) => {
   const virtualItems = instance.getVirtualItems();
   if (!virtualItems.length) return false;
@@ -77,19 +84,67 @@ export function useChatScroll<TMessage>(
   const hasUpperRef = useRef(hasUpper);
   hasUpperRef.current = hasUpper;
 
-  const restoreUpperRef = useRef<null | {
-    totalSize: number;
-  }>(null);
+  const upperAnchorRef = useRef<UpperAnchor | null>(null);
+
+  const getMessageIndex = useCallback(
+    (virtualIndex: number) => virtualIndex - Number(hasUpper),
+    [hasUpper],
+  );
+
+  const getVirtualIndex = useCallback(
+    (messageIndex: number) => messageIndex + Number(hasUpper),
+    [hasUpper],
+  );
+
+  const getResolvedMessageKey = useCallback(
+    (message: TMessage, index: number): MessageKey =>
+      getMessageKey?.(message, index) ?? index,
+    [getMessageKey],
+  );
+
+  const getFirstVisibleMessageAnchor = useCallback(
+    (instance: Virtualizer<Element, Element>): UpperAnchor | null => {
+      const scrollOffset = instance.scrollOffset ?? 0;
+      const virtualItems = instance.getVirtualItems();
+      const firstVisibleMessage = virtualItems.find((virtualItem) => {
+        if (hasUpper && virtualItem.index === 0) return false;
+        if (virtualItem.end <= scrollOffset) return false;
+
+        const messageIndex = getMessageIndex(virtualItem.index);
+        return messageIndex >= 0 && messageIndex < messages.length;
+      });
+
+      if (!firstVisibleMessage) return null;
+
+      const messageIndex = getMessageIndex(firstVisibleMessage.index);
+      const message = messages[messageIndex];
+      const messageKey = getResolvedMessageKey(message, messageIndex);
+
+      return {
+        messageKey,
+        offsetFromViewportTop: firstVisibleMessage.start - scrollOffset,
+      };
+    },
+    [getMessageIndex, getResolvedMessageKey, hasUpper, messages],
+  );
+
+  const updateUpperAnchor = useCallback(
+    (instance: Virtualizer<Element, Element>) => {
+      const nextAnchor = getFirstVisibleMessageAnchor(instance);
+      if (nextAnchor) {
+        upperAnchorRef.current = nextAnchor;
+      }
+    },
+    [getFirstVisibleMessageAnchor],
+  );
 
   const loadPrevious = useCallback(async function (
     instance: Virtualizer<Element, Element>,
   ) {
     if (!hasUpperRef.current) return;
-    restoreUpperRef.current = {
-      totalSize: instance.getTotalSize(),
-    };
+    updateUpperAnchor(instance);
     await onLoadUpperRef.current?.();
-  }, []);
+  }, [updateUpperAnchor]);
 
   const virtualizer = useVirtualizer({
     getScrollElement,
@@ -112,7 +167,11 @@ export function useChatScroll<TMessage>(
 
       stickToBottomRef.current = isAtBottom(instance);
       if (stickToBottomRef.current) {
-        restoreUpperRef.current = null;
+        upperAnchorRef.current = null;
+      }
+
+      if (isLoadingUpperRef.current) {
+        updateUpperAnchor(instance);
       }
 
       const nearTop = isAtTop(instance);
@@ -136,10 +195,10 @@ export function useChatScroll<TMessage>(
     (index: number, options?: ScrollToOptions) => {
       if (index < 0 || index >= messages.length) return;
 
-      const virtualIndex = index + Number(hasUpper);
+      const virtualIndex = getVirtualIndex(index);
       virtualizer.scrollToIndex(virtualIndex, options);
     },
-    [hasUpper, messages.length, virtualizer],
+    [getVirtualIndex, messages.length, virtualizer],
   );
 
   const scheduleScrollToBottom = useCallback(() => {
@@ -172,24 +231,45 @@ export function useChatScroll<TMessage>(
   }, [messages.length, _scrollToBottom]);
 
   useLayoutEffect(() => {
-    const restore = restoreUpperRef.current;
-    if (restore) {
+    const anchor = upperAnchorRef.current;
+    if (anchor) {
       /**
        * !FIXME
-       * 1. 消息组件需要定高，如果异步组件不定高，在 loadUpper 后上方的组件高度变化会导致滚动位置不准
-       * 2. 当前没有处理： loadUpper 开始后，向下滚动，loadUpper 完成，滚动位置会跳回 loadUpper 开始时的位置
+       * 消息组件需要定高，如果异步组件不定高，在 loadUpper 后上方的组件高度变化会导致滚动位置不准
        */
-      const nextTotalSize = virtualizer.getTotalSize();
-      const addedHeight = nextTotalSize - restore.totalSize;
-      virtualizer.scrollToOffset(addedHeight);
-      restoreUpperRef.current = null;
+      const messageIndex = messages.findIndex(
+        (message, index) =>
+          getResolvedMessageKey(message, index) === anchor.messageKey,
+      );
+
+      if (messageIndex !== -1) {
+        const virtualIndex = getVirtualIndex(messageIndex);
+        const measurement = virtualizer.measurementsCache.find(
+          (item) => item.index === virtualIndex,
+        );
+        const itemStart =
+          measurement?.start ?? virtualizer.getOffsetForIndex(virtualIndex)?.[0];
+
+        if (itemStart !== undefined) {
+          virtualizer.scrollToOffset(itemStart - anchor.offsetFromViewportTop);
+        }
+      }
+
+      upperAnchorRef.current = null;
       return;
     }
 
     if (initializedRef.current && stickToBottomRef.current) {
       scheduleScrollToBottom();
     }
-  }, [scheduleScrollToBottom, virtualCount, virtualizer]);
+  }, [
+    getResolvedMessageKey,
+    getVirtualIndex,
+    messages,
+    scheduleScrollToBottom,
+    virtualCount,
+    virtualizer,
+  ]);
 
   const virtualItems = virtualizer.getVirtualItems();
   const virtualRows = useMemo(
@@ -203,9 +283,7 @@ export function useChatScroll<TMessage>(
             };
           }
 
-          const messageIndex = hasUpper
-            ? virtualItem.index - 1
-            : virtualItem.index;
+          const messageIndex = getMessageIndex(virtualItem.index);
           if (messageIndex < 0 || messageIndex >= messages.length) {
             return null;
           }
@@ -220,7 +298,7 @@ export function useChatScroll<TMessage>(
           };
         })
         .filter((row): row is ChatVirtualRow<TMessage> => row !== null),
-    [hasUpper, messages, virtualItems],
+    [getMessageIndex, hasUpper, messages, virtualItems],
   );
 
   return {
