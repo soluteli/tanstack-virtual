@@ -35,6 +35,20 @@ export interface UseChatScrollReturn<TMessage> {
 }
 
 type MessageKey = string | number;
+type ChatRowKey = string | number;
+
+type ChatRowModel<TMessage> =
+  | {
+      type: "upper-loading";
+      key: ChatRowKey;
+    }
+  | {
+      type: "message";
+      key: ChatRowKey;
+      messageKey: MessageKey;
+      message: TMessage;
+      messageIndex: number;
+    };
 
 interface UpperAnchor {
   messageKey: MessageKey;
@@ -71,8 +85,6 @@ export function useChatScroll<TMessage>(
   const { messages, getMessageKey, getScrollElement, onLoadUpper, hasUpper } =
     options;
 
-  const virtualCount = messages.length + Number(hasUpper);
-
   const stickToBottomRef = useRef(true);
   const initializedRef = useRef(false);
   const pendingScrollToBottomRef = useRef(false);
@@ -86,22 +98,35 @@ export function useChatScroll<TMessage>(
 
   const upperAnchorRef = useRef<UpperAnchor | null>(null);
 
-  // virtual index 包含可选的 upper-loading 行，message index 只对应 messages。
-  const getMessageIndex = useCallback(
-    (virtualIndex: number) => virtualIndex - Number(hasUpper),
-    [hasUpper],
-  );
-
-  const getVirtualIndex = useCallback(
-    (messageIndex: number) => messageIndex + Number(hasUpper),
-    [hasUpper],
-  );
-
-  const getResolvedMessageKey = useCallback(
+  const getMessageKeyValue = useCallback(
     (message: TMessage, index: number): MessageKey =>
       getMessageKey?.(message, index) ?? index,
     [getMessageKey],
   );
+
+  const chatRows = useMemo(() => {
+    const rows: ChatRowModel<TMessage>[] = [];
+
+    if (hasUpper) {
+      rows.push({
+        type: "upper-loading",
+        key: "chat-row:upper-loading",
+      });
+    }
+
+    messages.forEach((message, messageIndex) => {
+      const messageKey = getMessageKeyValue(message, messageIndex);
+      rows.push({
+        type: "message",
+        key: messageKey,
+        messageKey,
+        message,
+        messageIndex,
+      });
+    });
+
+    return rows;
+  }, [getMessageKeyValue, hasUpper, messages]);
 
   const getFirstVisibleMessageAnchor = useCallback(
     (instance: Virtualizer<Element, Element>): UpperAnchor | null => {
@@ -109,26 +134,24 @@ export function useChatScroll<TMessage>(
       const virtualItems = instance.getVirtualItems();
       const firstVisibleMessage = virtualItems.find((virtualItem) => {
         // upper-loading 是列表状态 UI，不作为用户正在阅读的 message 锚点。
-        if (hasUpper && virtualItem.index === 0) return false;
         if (virtualItem.start < scrollOffset) return false;
 
-        const messageIndex = getMessageIndex(virtualItem.index);
-        return messageIndex >= 0 && messageIndex < messages.length;
+        const row = chatRows[virtualItem.index];
+        return row?.type === "message";
       });
 
       if (!firstVisibleMessage) return null;
 
-      const messageIndex = getMessageIndex(firstVisibleMessage.index);
-      const message = messages[messageIndex];
-      const messageKey = getResolvedMessageKey(message, messageIndex);
+      const row = chatRows[firstVisibleMessage.index];
+      if (row?.type !== "message") return null;
 
       return {
-        messageKey,
+        messageKey: row.messageKey,
         // 用这个偏移在 prepend 后把同一条 message 恢复到相同 viewport 位置。
         offsetFromViewportTop: firstVisibleMessage.start - scrollOffset,
       };
     },
-    [getMessageIndex, getResolvedMessageKey, hasUpper, messages],
+    [chatRows],
   );
 
   const updateUpperAnchor = useCallback(
@@ -152,20 +175,10 @@ export function useChatScroll<TMessage>(
 
   const virtualizer = useVirtualizer({
     getScrollElement,
-    count: virtualCount,
+    count: chatRows.length,
     estimateSize: () => 150,
     overscan: 5,
-    getItemKey: (index) => {
-      if (hasUpper && index === 0) return "upper-loading";
-
-      const messageIndex = hasUpper ? index - 1 : index;
-      if (messageIndex < 0 || messageIndex >= messages.length) {
-        return messageIndex;
-      }
-
-      const message = messages[messageIndex];
-      return getMessageKey?.(message, messageIndex) ?? messageIndex;
-    },
+    getItemKey: (index) => chatRows[index]?.key ?? index,
     onChange: async (instance, sync) => {
       if (!sync) return;
 
@@ -193,18 +206,21 @@ export function useChatScroll<TMessage>(
 
   const _scrollToBottom = useCallback(() => {
     if (!messages.length) return;
-    virtualizer.scrollToIndex(virtualCount - 1, { align: "end" });
-  }, [messages.length, virtualCount, virtualizer]);
+    virtualizer.scrollToIndex(chatRows.length - 1, { align: "end" });
+  }, [chatRows.length, messages.length, virtualizer]);
 
   const scrollToMessageIndex = useCallback(
     (index: number, options?: ScrollToOptions) => {
       if (index < 0 || index >= messages.length) return;
 
-      // 外部按 message index 滚动，hook 内部隐藏 loading row 带来的偏移。
-      const virtualIndex = getVirtualIndex(index);
+      const virtualIndex = chatRows.findIndex(
+        (row) => row.type === "message" && row.messageIndex === index,
+      );
+      if (virtualIndex === -1) return;
+
       virtualizer.scrollToIndex(virtualIndex, options);
     },
-    [getVirtualIndex, messages.length, virtualizer],
+    [chatRows, messages.length, virtualizer],
   );
 
   const scheduleScrollToBottom = useCallback(() => {
@@ -243,13 +259,11 @@ export function useChatScroll<TMessage>(
        * !FIXME
        * 消息组件需要定高，如果异步组件不定高，在 loadUpper 后上方的组件高度变化会导致滚动位置不准
        */
-      const messageIndex = messages.findIndex(
-        (message, index) =>
-          getResolvedMessageKey(message, index) === anchor.messageKey,
+      const virtualIndex = chatRows.findIndex(
+        (row) => row.type === "message" && row.messageKey === anchor.messageKey,
       );
 
-      if (messageIndex !== -1) {
-        const virtualIndex = getVirtualIndex(messageIndex);
+      if (virtualIndex !== -1) {
         // 优先使用 measured data，必要时 fallback 到 TanStack 计算出的 offset。
         const measurement = virtualizer.measurementsCache.find(
           (item) => item.index === virtualIndex,
@@ -269,43 +283,32 @@ export function useChatScroll<TMessage>(
     if (initializedRef.current && stickToBottomRef.current) {
       scheduleScrollToBottom();
     }
-  }, [
-    getResolvedMessageKey,
-    getVirtualIndex,
-    messages,
-    scheduleScrollToBottom,
-    virtualCount,
-    virtualizer,
-  ]);
+  }, [chatRows, scheduleScrollToBottom, virtualizer]);
 
   const virtualItems = virtualizer.getVirtualItems();
   const virtualRows = useMemo(
     () =>
       virtualItems
         .map((virtualItem): ChatVirtualRow<TMessage> | null => {
-          if (hasUpper && virtualItem.index === 0) {
+          const row = chatRows[virtualItem.index];
+          if (!row) return null;
+
+          if (row.type === "upper-loading") {
             return {
               type: "upper-loading",
               virtualItem,
             };
           }
 
-          const messageIndex = getMessageIndex(virtualItem.index);
-          if (messageIndex < 0 || messageIndex >= messages.length) {
-            return null;
-          }
-
-          const message = messages[messageIndex];
-
           return {
             type: "message",
             virtualItem,
-            message,
-            messageIndex,
+            message: row.message,
+            messageIndex: row.messageIndex,
           };
         })
         .filter((row): row is ChatVirtualRow<TMessage> => row !== null),
-    [getMessageIndex, hasUpper, messages, virtualItems],
+    [chatRows, virtualItems],
   );
 
   return {
