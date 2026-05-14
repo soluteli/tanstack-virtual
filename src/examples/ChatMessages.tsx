@@ -2,6 +2,7 @@ import React from "react";
 import { useChatMessagesController } from "../hooks/useChatMessagesController";
 import { useChatScroll } from "../hooks/useChatScroll";
 import type { MessageWithImage } from "../utils/mockdata";
+import { getDebugInfo } from "../utils/devHelpers";
 
 const PAGE_SIZE = 20;
 
@@ -17,9 +18,10 @@ function MessageRow({ message }: { message: MessageWithImage }) {
   );
 }
 
+
 export function ChatMessages() {
   const parentRef = React.useRef<HTMLDivElement>(null);
-  
+
   const controller = useChatMessagesController({
     initialMode: "middle",
     pageSize: PAGE_SIZE,
@@ -64,6 +66,9 @@ export function ChatMessages() {
       <span style={{ padding: "0 4px" }} />
       <span style={{ padding: "0 4px" }} />
       <hr />
+      <div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>
+        {getDebugInfo(scroll, controller.messages, controller.hasUpper, false)}
+      </div>
       <div
         ref={parentRef}
         className="List"

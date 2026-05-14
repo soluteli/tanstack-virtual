@@ -2,6 +2,7 @@ import React, { useLayoutEffect, useState } from "react";
 import { useChatMessagesController } from "../hooks/useChatMessagesController";
 import { useChatScroll } from "../hooks/useChatScroll";
 import type { MessageWithImage } from "../utils/mockdata";
+import { getDebugInfo } from "../utils/devHelpers";
 
 function MessageRow({ message }: { message: MessageWithImage }) {
   return (
@@ -14,6 +15,7 @@ function MessageRow({ message }: { message: MessageWithImage }) {
     </div>
   );
 }
+
 
 export function ChatMessagesMiddleWindow() {
   const parentRef = React.useRef<HTMLDivElement>(null);
@@ -55,6 +57,9 @@ export function ChatMessagesMiddleWindow() {
         isAtConversationLatest: {String(scroll.isAtConversationLatest)}
       </span>
       <hr />
+      <div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>
+        {getDebugInfo(scroll, controller.messages, controller.hasUpper, controller.hasBottom)}
+      </div>
       <div
         ref={parentRef}
         className="List"

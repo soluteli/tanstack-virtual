@@ -357,6 +357,12 @@ export function useChatScroll<TMessage>(
   }, [scheduleScrollToBottom, stickToBottomRef, virtualizer]);
 
   useLayoutEffect(() => {
+    if (initializedRef.current && !hasBottom && stickToBottomRef.current) {
+      scheduleScrollToBottom();
+    }
+  }, [scheduleScrollToBottom])
+  
+  useLayoutEffect(() => {
     stickToBottomRef.current = !hasBottom && scrollFacts.isAtLoadedBottom;
   }, [hasBottom, scrollFacts.isAtLoadedBottom]);
 
@@ -401,10 +407,6 @@ export function useChatScroll<TMessage>(
 
       upperAnchorRef.current = null;
       return;
-    }
-
-    if (initializedRef.current && !hasBottom && stickToBottomRef.current) {
-      scheduleScrollToBottom();
     }
   }, [chatRows, hasBottom, scheduleScrollToBottom, virtualizer]);
 

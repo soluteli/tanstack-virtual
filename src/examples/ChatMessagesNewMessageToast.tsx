@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import { useChatMessagesController } from "../hooks/useChatMessagesController";
 import { useChatScroll } from "../hooks/useChatScroll";
 import type { MessageWithImage } from "../utils/mockdata";
+import { getDebugInfo } from "../utils/devHelpers";
 
 function MessageRow({ message }: { message: MessageWithImage }) {
   return (
@@ -14,6 +15,7 @@ function MessageRow({ message }: { message: MessageWithImage }) {
     </div>
   );
 }
+
 
 export function ChatMessagesNewMessageToast() {
   const parentRef = React.useRef<HTMLDivElement>(null);
@@ -49,10 +51,10 @@ export function ChatMessagesNewMessageToast() {
       <button onClick={() => scroll.scrollToLoadedBottom()}>
         scroll to bottom
       </button>
-      <span style={{ padding: "0 8px" }}>
-        sticky: {String(scroll.isStickyBottom)}
-      </span>
       <hr />
+      <div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>
+        {getDebugInfo(scroll, controller.messages, controller.hasUpper, controller.hasBottom)} |  isStickyBottom: {String(scroll.isStickyBottom)}
+      </div>
       <div
         ref={parentRef}
         className="List"
@@ -123,24 +125,24 @@ export function ChatMessagesNewMessageToast() {
               );
             })}
           </div>
+            {controller.newMessageCount > 0 ? (
+            <button
+              onClick={() => {
+                scroll.scrollToLoadedBottom();
+                controller.clearNewMessageCount();
+              }}
+              style={{
+                position: "absolute",
+                right: 24,
+                bottom: 24,
+                zIndex: 1,
+              }}
+            >
+              {controller.newMessageCount} 条新消息
+            </button>
+          ) : null}
         </div>
       </div>
-      {controller.newMessageCount > 0 ? (
-        <button
-          onClick={() => {
-            scroll.scrollToLoadedBottom();
-            controller.clearNewMessageCount();
-          }}
-          style={{
-            position: "fixed",
-            right: 24,
-            bottom: 24,
-            zIndex: 1,
-          }}
-        >
-          {controller.newMessageCount} 条新消息
-        </button>
-      ) : null}
     </div>
   );
 }
