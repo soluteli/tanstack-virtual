@@ -35,7 +35,7 @@ export const genMessagesListHistory = ({
       ? (end - size) >=0 ? size : end
       : size
 
-  const startIndex = start ?? (end !== undefined ? end - size : 0)
+  const startIndex = start ?? (end !== undefined ? Math.max(end - size, 0) : 0)
 
   return new Array(count)
     .fill(true)
