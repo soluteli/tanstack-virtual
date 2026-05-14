@@ -1,22 +1,36 @@
-import { useCallback, useRef, useLayoutEffect, useEffect } from "react";
+import { useCallback, useRef, useLayoutEffect, useMemo } from "react";
 import {
   useVirtualizer,
   VirtualItem,
+  type ScrollToOptions,
   type Virtualizer,
 } from "@tanstack/react-virtual";
 
-export interface UseChatScrollOptions {
-  count: number;
-  getItemKey?: (index: number) => string | number;
+export type ChatVirtualRow<TMessage> =
+  | {
+      type: "upper-loading";
+      virtualItem: VirtualItem;
+    }
+  | {
+      type: "message";
+      virtualItem: VirtualItem;
+      message: TMessage;
+      messageIndex: number;
+    };
+
+export interface UseChatScrollOptions<TMessage> {
+  messages: readonly TMessage[];
+  getMessageKey?: (message: TMessage, index: number) => string | number;
   getScrollElement: () => Element | null;
   onLoadUpper?: () => Promise<void>;
   hasUpper?: boolean;
 }
 
-export interface UseChatScrollReturn {
+export interface UseChatScrollReturn<TMessage> {
   virtualizer: Virtualizer<Element, Element>;
   onItemSizeAsyncChange: () => void;
-  virtualItems: VirtualItem[];
+  virtualRows: ChatVirtualRow<TMessage>[];
+  scrollToMessageIndex: (index: number, options?: ScrollToOptions) => void;
   totalHeight: number;
 }
 
@@ -40,14 +54,16 @@ const isAtBottom = (instance: Virtualizer<Element, Element>) => {
 
 const isAtTop = (instance: Virtualizer<Element, Element>) => {
   const virtualItems = instance.getVirtualItems();
-  return virtualItems[0].index <= 1;
+  return (virtualItems[0]?.index ?? 0) <= 1;
 };
 
-export function useChatScroll(
-  options: UseChatScrollOptions,
-): UseChatScrollReturn {
-  const { count, getItemKey, getScrollElement, onLoadUpper, hasUpper } =
+export function useChatScroll<TMessage>(
+  options: UseChatScrollOptions<TMessage>,
+): UseChatScrollReturn<TMessage> {
+  const { messages, getMessageKey, getScrollElement, onLoadUpper, hasUpper } =
     options;
+
+  const virtualCount = messages.length + Number(hasUpper);
 
   const stickToBottomRef = useRef(true);
   const initializedRef = useRef(false);
@@ -77,10 +93,20 @@ export function useChatScroll(
 
   const virtualizer = useVirtualizer({
     getScrollElement,
-    count,
+    count: virtualCount,
     estimateSize: () => 150,
     overscan: 5,
-    getItemKey,
+    getItemKey: (index) => {
+      if (hasUpper && index === 0) return "upper-loading";
+
+      const messageIndex = hasUpper ? index - 1 : index;
+      if (messageIndex < 0 || messageIndex >= messages.length) {
+        return messageIndex;
+      }
+
+      const message = messages[messageIndex];
+      return getMessageKey?.(message, messageIndex) ?? messageIndex;
+    },
     onChange: async (instance, sync) => {
       if (!sync) return;
 
@@ -102,9 +128,19 @@ export function useChatScroll(
   });
 
   const _scrollToBottom = useCallback(() => {
-    if (!count) return;
-    virtualizer.scrollToIndex(count - 1, { align: "end" });
-  }, [count, virtualizer]);
+    if (!messages.length) return;
+    virtualizer.scrollToIndex(virtualCount - 1, { align: "end" });
+  }, [messages.length, virtualCount, virtualizer]);
+
+  const scrollToMessageIndex = useCallback(
+    (index: number, options?: ScrollToOptions) => {
+      if (index < 0 || index >= messages.length) return;
+
+      const virtualIndex = index + Number(hasUpper);
+      virtualizer.scrollToIndex(virtualIndex, options);
+    },
+    [hasUpper, messages.length, virtualizer],
+  );
 
   const scheduleScrollToBottom = useCallback(() => {
     if (pendingScrollRef.current) return;
@@ -124,7 +160,7 @@ export function useChatScroll(
 
   // 首次进入列表滚到底
   useLayoutEffect(() => {
-    if (!count) return;
+    if (!messages.length) return;
     if (initializedRef.current) return;
 
     initializedRef.current = true;
@@ -133,7 +169,7 @@ export function useChatScroll(
     requestAnimationFrame(() => {
       _scrollToBottom();
     });
-  }, [count, _scrollToBottom]);
+  }, [messages.length, _scrollToBottom]);
 
   useLayoutEffect(() => {
     const restore = restoreUpperRef.current;
@@ -147,15 +183,51 @@ export function useChatScroll(
       const addedHeight = nextTotalSize - restore.totalSize;
       virtualizer.scrollToOffset(addedHeight);
       restoreUpperRef.current = null;
+      return;
     }
-  }, [count, virtualizer]);
 
-  useEffect(() => {}, [virtualizer]);
+    if (initializedRef.current && stickToBottomRef.current) {
+      scheduleScrollToBottom();
+    }
+  }, [scheduleScrollToBottom, virtualCount, virtualizer]);
+
+  const virtualItems = virtualizer.getVirtualItems();
+  const virtualRows = useMemo(
+    () =>
+      virtualItems
+        .map((virtualItem): ChatVirtualRow<TMessage> | null => {
+          if (hasUpper && virtualItem.index === 0) {
+            return {
+              type: "upper-loading",
+              virtualItem,
+            };
+          }
+
+          const messageIndex = hasUpper
+            ? virtualItem.index - 1
+            : virtualItem.index;
+          if (messageIndex < 0 || messageIndex >= messages.length) {
+            return null;
+          }
+
+          const message = messages[messageIndex];
+
+          return {
+            type: "message",
+            virtualItem,
+            message,
+            messageIndex,
+          };
+        })
+        .filter((row): row is ChatVirtualRow<TMessage> => row !== null),
+    [hasUpper, messages, virtualItems],
+  );
 
   return {
     virtualizer,
     onItemSizeAsyncChange,
-    virtualItems: virtualizer.getVirtualItems(),
+    virtualRows,
+    scrollToMessageIndex,
     totalHeight: virtualizer.getTotalSize(),
   };
 }
