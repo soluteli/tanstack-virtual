@@ -99,7 +99,7 @@ export function ChatMessages() {
         className="List"
         style={{
           height: 400,
-          width: 400,
+          width: '80%',
           overflowY: "auto",
           contain: "strict",
           overflowAnchor: "none",
