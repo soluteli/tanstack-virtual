@@ -16,7 +16,6 @@ function MessageRow({ message }: { message: MessageWithImage }) {
   );
 }
 
-
 export function ChatMessagesMiddleWindow() {
   const parentRef = React.useRef<HTMLDivElement>(null);
   const [shouldScrollAfterJump, setShouldScrollAfterJump] = useState(false);
@@ -50,15 +49,14 @@ export function ChatMessagesMiddleWindow() {
       >
         跳到真正最新
       </button>
-      <span style={{ padding: "0 8px" }}>
-        isAtLoadedBottom: {String(scroll.isAtLoadedBottom)}
-      </span>
-      <span style={{ padding: "0 8px" }}>
-        isAtConversationLatest: {String(scroll.isAtConversationLatest)}
-      </span>
       <hr />
       <div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>
-        {getDebugInfo(scroll, controller.messages, controller.hasUpper, controller.hasBottom)}
+        {getDebugInfo(
+          scroll,
+          controller.messages,
+          controller.hasUpper,
+          controller.hasBottom,
+        )}
       </div>
       <div
         ref={parentRef}
