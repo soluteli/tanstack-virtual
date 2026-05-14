@@ -38,9 +38,6 @@ export interface UseChatScrollReturn<TMessage> {
   virtualRows: ChatVirtualRow<TMessage>[];
   scrollToMessageIndex: (index: number, options?: ScrollToOptions) => void;
   scrollToLoadedBottom: (options?: ScrollToOptions) => void;
-  isStickyBottom: boolean;
-  isAtLoadedBottom: boolean;
-  isAtConversationLatest: boolean;
   totalHeight: number;
 }
 
@@ -70,29 +67,6 @@ interface UpperAnchor {
   offsetFromViewportTop: number;
 }
 
-interface ScrollFacts {
-  isAtLoadedBottom: boolean;
-  isStickyBottom: boolean;
-}
-
-const LOADED_BOTTOM_THRESHOLD = 4;
-
-const getIsRowBottomReached = (
-  instance: Virtualizer<Element, Element>,
-  rowIndex: number,
-) => {
-  const virtualItems = instance.getVirtualItems();
-  const item = virtualItems.find(
-    (virtualItem) => virtualItem.index === rowIndex,
-  );
-  if (!item || !instance.scrollRect) return false;
-
-  const scrollOffset = instance.scrollOffset ?? 0;
-  const viewportBottom = scrollOffset + instance.scrollRect.height;
-
-  return item.end <= viewportBottom + LOADED_BOTTOM_THRESHOLD;
-};
-
 const getLoadedBottomIndex = <TMessage,>(
   rows: readonly ChatRowModel<TMessage>[],
 ) => {
@@ -103,22 +77,6 @@ const getLoadedBottomIndex = <TMessage,>(
   }
 
   return -1;
-};
-
-const getScrollFacts = <TMessage,>(
-  instance: Virtualizer<Element, Element>,
-  rows: readonly ChatRowModel<TMessage>[],
-  hasBottom: boolean | undefined,
-): ScrollFacts => {
-  const loadedBottomIndex = getLoadedBottomIndex(rows);
-  const isAtLoadedBottom =
-    loadedBottomIndex !== -1 &&
-    getIsRowBottomReached(instance, loadedBottomIndex);
-
-  return {
-    isAtLoadedBottom,
-    isStickyBottom: !hasBottom && isAtLoadedBottom,
-  };
 };
 
 const isAtTop = (instance: Virtualizer<Element, Element>) => {
@@ -150,12 +108,8 @@ export function useChatScroll<TMessage>(
   const pendingScrollToBottomRef = useRef(false);
   const isLoadingUpperRef = useRef(false);
   const isLoadingBottomRef = useRef(false);
-  const [scrollFacts, setScrollFacts] = useState<ScrollFacts>({
-    isAtLoadedBottom: true,
-    isStickyBottom: true,
-  });
-
   const onLoadUpperRef = useRef(onLoadUpper);
+
   onLoadUpperRef.current = onLoadUpper;
 
   const hasUpperRef = useRef(hasUpper);
@@ -263,24 +217,9 @@ export function useChatScroll<TMessage>(
     overscan: 5,
     getItemKey: (index) => chatRows[index]?.key ?? index,
     onChange: async (instance, sync) => {
-      const nextScrollFacts = getScrollFacts(
-        instance,
-        chatRows,
-        hasBottomRef.current,
-      );
-      stickToBottomRef.current = nextScrollFacts.isStickyBottom;
-      setScrollFacts((currentFacts) => {
-        if (
-          currentFacts.isAtLoadedBottom === nextScrollFacts.isAtLoadedBottom &&
-          currentFacts.isStickyBottom === nextScrollFacts.isStickyBottom
-        ) {
-          return currentFacts;
-        }
-
-        return nextScrollFacts;
-      });
-
       if (!sync) return;
+
+      stickToBottomRef.current = isAtBottom(instance)
 
       if (stickToBottomRef.current) {
         upperAnchorRef.current = null;
@@ -354,17 +293,7 @@ export function useChatScroll<TMessage>(
   const onItemSizeAsyncChange = useCallback(() => {
     if (stickToBottomRef.current && !virtualizer.isScrolling)
       scheduleScrollToBottom();
-  }, [scheduleScrollToBottom, stickToBottomRef, virtualizer]);
-
-  useLayoutEffect(() => {
-    if (initializedRef.current && !hasBottom && stickToBottomRef.current) {
-      scheduleScrollToBottom();
-    }
-  }, [scheduleScrollToBottom])
-  
-  useLayoutEffect(() => {
-    stickToBottomRef.current = !hasBottom && scrollFacts.isAtLoadedBottom;
-  }, [hasBottom, scrollFacts.isAtLoadedBottom]);
+  }, [scheduleScrollToBottom, virtualizer]);
 
   // 首次进入列表滚到底
   useLayoutEffect(() => {
@@ -372,7 +301,6 @@ export function useChatScroll<TMessage>(
     if (initializedRef.current) return;
 
     initializedRef.current = true;
-    stickToBottomRef.current = !hasBottom;
 
     if (!hasBottom) {
       requestAnimationFrame(() => {
@@ -409,6 +337,12 @@ export function useChatScroll<TMessage>(
       return;
     }
   }, [chatRows, hasBottom, scheduleScrollToBottom, virtualizer]);
+
+  useLayoutEffect(() => {
+    if (initializedRef.current && isAtBottom(virtualizer)) {
+      scheduleScrollToBottom();
+    }
+  }, [hasBottom, scheduleScrollToBottom, virtualizer]);
 
   const virtualItems = virtualizer.getVirtualItems();
   const virtualRows = useMemo(
@@ -449,9 +383,6 @@ export function useChatScroll<TMessage>(
     virtualRows,
     scrollToMessageIndex,
     scrollToLoadedBottom,
-    isStickyBottom: !hasBottom && scrollFacts.isAtLoadedBottom,
-    isAtLoadedBottom: scrollFacts.isAtLoadedBottom,
-    isAtConversationLatest: !hasBottom && scrollFacts.isAtLoadedBottom,
     totalHeight: virtualizer.getTotalSize(),
   };
 }
