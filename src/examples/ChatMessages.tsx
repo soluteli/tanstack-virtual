@@ -13,7 +13,7 @@ export function ChatMessages() {
   );
   console.log("🚀 ~ ChatMessages ~ messagesList:", messagesList.length)
 
-  const handleLoadHistoryData = () => {
+  const handleLoadUpper = () => {
     console.log("🚀 ~ handleLoadHistoryData ~ handleLoadHistoryData:")
     setMessagesListData((prev) => {
       const oldestId = prev[0].id
@@ -30,7 +30,7 @@ export function ChatMessages() {
     })
   }
 
-  const handleLoadUpcomingData = () => {
+  const handleLoadBottom = () => {
     const newestId = messagesList[messagesList.length - 1].id
     setMessagesListData((prev) => [
       ...prev,
@@ -47,7 +47,7 @@ export function ChatMessages() {
     getScrollElement: () => parentRef.current,
     count: messagesList.length,
     getItemKey: (index: number) => messagesList[index].id,
-    onLoadHistory: handleLoadHistoryData
+    onLoadUpper: handleLoadUpper
   });
 
   return (

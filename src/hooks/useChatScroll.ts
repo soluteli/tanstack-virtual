@@ -9,7 +9,8 @@ export interface UseChatScrollOptions {
   count: number;
   getItemKey?: (index: number) => string | number;
   getScrollElement: () => Element | null;
-  onLoadHistory?: () => void;
+  onLoadUpper?: () => Promise<void>;
+  hasUpper?: boolean;
 }
 
 export interface UseChatScrollReturn {
@@ -48,14 +49,16 @@ const isAtTop = (
 export function useChatScroll(
   options: UseChatScrollOptions,
 ): UseChatScrollReturn {
-  const { count, getItemKey, getScrollElement, onLoadHistory } = options;
+  const { count, getItemKey, getScrollElement, onLoadUpper } = options;
 
   const stickToBottomRef = useRef(true);
   const initializedRef = useRef(false);
   const pendingScrollRef = useRef(false);
-  const isLoadingHistoryRef = useRef(false);
-  const onLoadHistoryRef = useRef(onLoadHistory);
-  onLoadHistoryRef.current = onLoadHistory;
+
+  const isLoadingUpperRef = useRef(false);
+
+  const onLoadUpperRef = useRef(onLoadUpper);
+  onLoadUpperRef.current = onLoadUpper;
 
   const restoreRef = useRef<null | {
     scrollTop: number
@@ -72,7 +75,7 @@ export function useChatScroll(
       totalSize: virtualizer.getTotalSize(),
     }
 
-    await onLoadHistoryRef.current?.();
+    await onLoadUpperRef.current?.();
   },[])
   
   const virtualizer = useVirtualizer({
@@ -87,8 +90,8 @@ export function useChatScroll(
       stickToBottomRef.current = isAtBottom(instance);
 
      const nearTop = isAtTop(instance);
-      if (nearTop && !isLoadingHistoryRef.current) {
-        isLoadingHistoryRef.current = true;
+      if (nearTop && !isLoadingUpperRef.current) {
+        isLoadingUpperRef.current = true;
         setTimeout(() => {
           
           loadPrevious(instance)
