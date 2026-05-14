@@ -3,8 +3,13 @@ import { useChatMessagesController } from "../hooks/useChatMessagesController";
 import { useChatScroll } from "../hooks/useChatScroll";
 import type { MessageWithImage } from "../utils/mockdata";
 import { getDebugInfo } from "../utils/devHelpers";
-
-const PAGE_SIZE = 20;
+import {
+  CHAT_MESSAGES_DEMO_PAGE_SIZE,
+  fetchPreviousChatMessages,
+  getInitialChatMessages,
+  getOldestMessageId,
+  hasUpperMessages,
+} from "./chatMessagesDemoData";
 
 function MessageRow({ message }: { message: MessageWithImage }) {
   return (
@@ -20,17 +25,37 @@ function MessageRow({ message }: { message: MessageWithImage }) {
 
 export function ChatMessages() {
   const parentRef = React.useRef<HTMLDivElement>(null);
+  const initialMessages = React.useMemo(
+    () => getInitialChatMessages("middle", CHAT_MESSAGES_DEMO_PAGE_SIZE),
+    [],
+  );
 
-  const controller = useChatMessagesController({
-    initialMode: "middle",
-    pageSize: PAGE_SIZE,
+  const controller = useChatMessagesController<MessageWithImage>({
+    initialMessages,
+    initialHasUpper: hasUpperMessages(initialMessages),
   });
+
+  const loadUpper = React.useCallback(async () => {
+    const startingOldestId = getOldestMessageId(controller.messages);
+    if (startingOldestId === undefined || startingOldestId <= 0) return;
+
+    const previousMessages = await fetchPreviousChatMessages(
+      startingOldestId,
+      CHAT_MESSAGES_DEMO_PAGE_SIZE,
+    );
+
+    controller.prependMessages(previousMessages, {
+      hasUpper: hasUpperMessages(previousMessages),
+      guard: (currentMessages) =>
+        getOldestMessageId(currentMessages) === startingOldestId,
+    });
+  }, [controller.messages, controller.prependMessages]);
 
   const scroll = useChatScroll({
     getScrollElement: () => parentRef.current,
     messages: controller.messages,
     getMessageKey: (message) => message.id,
-    onLoadUpper: controller.loadUpper,
+    onLoadUpper: loadUpper,
     hasUpper: controller.hasUpper,
   });
 
@@ -63,11 +88,15 @@ export function ChatMessages() {
         scroll to loaded bottom
       </button>
       <span style={{ padding: "0 4px" }} />
-      <span style={{ padding: "0 4px" }} />
       <hr />
-        <div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>
-          {getDebugInfo(scroll, controller.messages, controller.hasUpper, false)}
-        </div>
+      <div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>
+        {getDebugInfo(
+          scroll,
+          controller.messages,
+          controller.hasUpper,
+          controller.hasBottom,
+        )}
+      </div>
       <div
         ref={parentRef}
         className="List"

@@ -1,192 +1,206 @@
-import { useCallback, useMemo, useRef, useState } from "react";
-import {
-  genMessagesListHistory,
-  type MessageWithImage,
-} from "../utils/mockdata";
+import { useCallback, useMemo, useState } from "react";
 
-export type InitialMode = "latest" | "middle";
-
-export interface UseChatMessagesControllerOptions {
-  initialMode?: InitialMode;
-  pageSize?: number;
+export interface UseChatMessagesControllerOptions<TMessage> {
+  initialMessages: readonly TMessage[] | (() => readonly TMessage[]);
+  initialHasUpper?: boolean;
+  initialHasBottom?: boolean;
+  initialNewMessageCount?: number;
 }
 
-export interface PushMessageOptions {
+export interface ChatMessagesTransitionOptions<TMessage> {
+  hasUpper?: boolean;
+  hasBottom?: boolean;
+  guard?: (messages: readonly TMessage[]) => boolean;
+}
+
+export interface ReplaceChatMessagesWindowOptions {
+  hasUpper?: boolean;
+  hasBottom?: boolean;
+  newMessageCount?: number;
+}
+
+export interface AppendRealtimeMessagesOptions<TMessage>
+  extends ChatMessagesTransitionOptions<TMessage> {
   countAsNew?: boolean;
+  appendToWindow?: boolean;
 }
 
-export interface UseChatMessagesControllerReturn {
-  messages: MessageWithImage[];
+export interface UseChatMessagesControllerReturn<TMessage> {
+  messages: TMessage[];
   hasUpper: boolean;
   hasBottom: boolean;
   newMessageCount: number;
-  loadUpper: () => Promise<void>;
-  loadBottom: () => Promise<void>;
-  pushMessage: (options?: PushMessageOptions) => void;
-  pushMessages: (count: number, options?: PushMessageOptions) => void;
-  jumpToLatest: () => void;
+  replaceWindow: (
+    messages: readonly TMessage[],
+    options?: ReplaceChatMessagesWindowOptions,
+  ) => void;
+  prependMessages: (
+    messages: readonly TMessage[],
+    options?: ChatMessagesTransitionOptions<TMessage>,
+  ) => void;
+  appendMessages: (
+    messages: readonly TMessage[],
+    options?: ChatMessagesTransitionOptions<TMessage>,
+  ) => void;
+  appendRealtimeMessages: (
+    messages: readonly TMessage[],
+    options?: AppendRealtimeMessagesOptions<TMessage>,
+  ) => void;
   clearNewMessageCount: () => void;
 }
 
-const DEFAULT_PAGE_SIZE = 20;
-const INITIAL_LATEST_ID = 109;
+interface ChatMessagesWindowState<TMessage> {
+  messages: TMessage[];
+  hasUpper: boolean;
+  hasBottom: boolean;
+  newMessageCount: number;
+}
 
-const delay = (duration: number) =>
-  new Promise<void>((resolve) => {
-    setTimeout(resolve, duration);
-  });
-
-const getInitialMessages = (mode: InitialMode, pageSize: number) => {
-  if (mode === "middle") {
-    const start = Math.max(0, INITIAL_LATEST_ID - pageSize * 3);
-    return genMessagesListHistory({ start, size: pageSize });
-  }
-
-  return genMessagesListHistory({
-    end: INITIAL_LATEST_ID + 1,
-    size: pageSize,
-  });
-};
-
-export function useChatMessagesController({
-  initialMode = "latest",
-  pageSize = DEFAULT_PAGE_SIZE,
-}: UseChatMessagesControllerOptions = {}): UseChatMessagesControllerReturn {
-  const [conversationLatestId, setConversationLatestId] =
-    useState(INITIAL_LATEST_ID);
-  const conversationLatestIdRef = useRef(INITIAL_LATEST_ID);
-  const [messages, setMessages] = useState(() =>
-    getInitialMessages(initialMode, pageSize),
+const resolveInitialMessages = <TMessage,>(
+  initialMessages: readonly TMessage[] | (() => readonly TMessage[]),
+) =>
+  Array.from(
+    typeof initialMessages === "function"
+      ? initialMessages()
+      : initialMessages,
   );
-  const [newMessageCount, setNewMessageCount] = useState(0);
-  conversationLatestIdRef.current = conversationLatestId;
 
-  const oldestId = messages[0]?.id ?? 0;
-  const newestLoadedId = messages[messages.length - 1]?.id ?? 0;
+const shouldApplyTransition = <TMessage,>(
+  messages: readonly TMessage[],
+  guard?: (messages: readonly TMessage[]) => boolean,
+) => !guard || guard(messages);
 
-  const hasUpper = oldestId > 0;
-  const hasBottom = newestLoadedId < conversationLatestId;
+export function useChatMessagesController<TMessage>({
+  initialMessages,
+  initialHasUpper = false,
+  initialHasBottom = false,
+  initialNewMessageCount = 0,
+}: UseChatMessagesControllerOptions<TMessage>): UseChatMessagesControllerReturn<TMessage> {
+  const [windowState, setWindowState] = useState<
+    ChatMessagesWindowState<TMessage>
+  >(() => ({
+    messages: resolveInitialMessages(initialMessages),
+    hasUpper: initialHasUpper,
+    hasBottom: initialHasBottom,
+    newMessageCount: initialNewMessageCount,
+  }));
 
-  const pushGeneratedMessages = useCallback(
-    (count: number, options?: PushMessageOptions) => {
-      if (count <= 0) return;
-
-      const previousLatestId = conversationLatestIdRef.current;
-      const nextMessages = genMessagesListHistory({
-        start: previousLatestId + 1,
-        size: count,
-      });
-      const nextLatestId =
-        nextMessages[nextMessages.length - 1]?.id ?? previousLatestId;
-
-      conversationLatestIdRef.current = nextLatestId;
-      setConversationLatestId(nextLatestId);
-
-      setMessages((currentMessages) => {
-        const currentNewestId =
-          currentMessages[currentMessages.length - 1]?.id ?? -1;
-        if (currentNewestId < previousLatestId) {
-          return currentMessages;
-        }
-
-        return [...currentMessages, ...nextMessages];
-      });
-
-      if (options?.countAsNew) {
-        setNewMessageCount((currentCount) => currentCount + count);
-      }
+  const replaceWindow = useCallback(
+    (
+      messages: readonly TMessage[],
+      options?: ReplaceChatMessagesWindowOptions,
+    ) => {
+      setWindowState((currentState) => ({
+        messages: Array.from(messages),
+        hasUpper: options?.hasUpper ?? currentState.hasUpper,
+        hasBottom: options?.hasBottom ?? currentState.hasBottom,
+        newMessageCount:
+          options?.newMessageCount ?? currentState.newMessageCount,
+      }));
     },
     [],
   );
 
-  const loadUpper = useCallback(async () => {
-    const startingOldestId = messages[0]?.id;
-    if (startingOldestId === undefined || startingOldestId <= 0) {
-      return;
-    }
+  const prependMessages = useCallback(
+    (
+      messages: readonly TMessage[],
+      options?: ChatMessagesTransitionOptions<TMessage>,
+    ) => {
+      setWindowState((currentState) => {
+        if (!shouldApplyTransition(currentState.messages, options?.guard)) {
+          return currentState;
+        }
 
-    await delay(2000);
-
-    setMessages((currentMessages) => {
-      const currentOldestId = currentMessages[0]?.id;
-      if (currentOldestId !== startingOldestId) {
-        return currentMessages;
-      }
-
-      const previousMessages = genMessagesListHistory({
-        end: startingOldestId,
-        size: pageSize,
+        return {
+          ...currentState,
+          messages: [...messages, ...currentState.messages],
+          hasUpper: options?.hasUpper ?? currentState.hasUpper,
+          hasBottom: options?.hasBottom ?? currentState.hasBottom,
+        };
       });
+    },
+    [],
+  );
 
-      return [...previousMessages, ...currentMessages];
-    });
-  }, [messages, pageSize]);
+  const appendMessages = useCallback(
+    (
+      messages: readonly TMessage[],
+      options?: ChatMessagesTransitionOptions<TMessage>,
+    ) => {
+      setWindowState((currentState) => {
+        if (!shouldApplyTransition(currentState.messages, options?.guard)) {
+          return currentState;
+        }
 
-  const loadBottom = useCallback(async () => {
-    await delay(2000);
-
-    setMessages((currentMessages) => {
-      const currentNewestId = currentMessages[currentMessages.length - 1]?.id;
-      if (currentNewestId === undefined) {
-        return currentMessages;
-      }
-
-      const count = Math.min(
-        pageSize,
-        conversationLatestIdRef.current - currentNewestId,
-      );
-      if (count <= 0) {
-        return currentMessages;
-      }
-
-      const nextMessages = genMessagesListHistory({
-        start: currentNewestId + 1,
-        size: count,
+        return {
+          ...currentState,
+          messages: [...currentState.messages, ...messages],
+          hasUpper: options?.hasUpper ?? currentState.hasUpper,
+          hasBottom: options?.hasBottom ?? currentState.hasBottom,
+        };
       });
+    },
+    [],
+  );
 
-      return [...currentMessages, ...nextMessages];
-    });
-  }, [pageSize]);
+  const appendRealtimeMessages = useCallback(
+    (
+      messages: readonly TMessage[],
+      options?: AppendRealtimeMessagesOptions<TMessage>,
+    ) => {
+      setWindowState((currentState) => {
+        if (!shouldApplyTransition(currentState.messages, options?.guard)) {
+          return currentState;
+        }
 
-  const jumpToLatest = useCallback(() => {
-    setMessages(
-      genMessagesListHistory({
-        end: conversationLatestIdRef.current + 1,
-        size: pageSize,
-      }),
-    );
-    setNewMessageCount(0);
-  }, [pageSize]);
+        const shouldAppend = options?.appendToWindow ?? true;
+        const newMessageCount = options?.countAsNew
+          ? currentState.newMessageCount + messages.length
+          : currentState.newMessageCount;
+
+        return {
+          ...currentState,
+          messages: shouldAppend
+            ? [...currentState.messages, ...messages]
+            : currentState.messages,
+          hasUpper: options?.hasUpper ?? currentState.hasUpper,
+          hasBottom: options?.hasBottom ?? currentState.hasBottom,
+          newMessageCount,
+        };
+      });
+    },
+    [],
+  );
 
   const clearNewMessageCount = useCallback(() => {
-    setNewMessageCount(0);
+    setWindowState((currentState) => ({
+      ...currentState,
+      newMessageCount: 0,
+    }));
   }, []);
 
   return useMemo(
     () => ({
-      messages,
-      hasUpper,
-      hasBottom,
-      newMessageCount,
-      loadUpper,
-      loadBottom,
-      pushMessage: (options?: PushMessageOptions) => {
-        pushGeneratedMessages(1, options);
-      },
-      pushMessages: pushGeneratedMessages,
-      jumpToLatest,
+      messages: windowState.messages,
+      hasUpper: windowState.hasUpper,
+      hasBottom: windowState.hasBottom,
+      newMessageCount: windowState.newMessageCount,
+      replaceWindow,
+      prependMessages,
+      appendMessages,
+      appendRealtimeMessages,
       clearNewMessageCount,
     }),
     [
+      appendMessages,
+      appendRealtimeMessages,
       clearNewMessageCount,
-      hasBottom,
-      hasUpper,
-      jumpToLatest,
-      loadBottom,
-      loadUpper,
-      messages,
-      newMessageCount,
-      pushGeneratedMessages,
+      prependMessages,
+      replaceWindow,
+      windowState.hasBottom,
+      windowState.hasUpper,
+      windowState.messages,
+      windowState.newMessageCount,
     ],
   );
 }

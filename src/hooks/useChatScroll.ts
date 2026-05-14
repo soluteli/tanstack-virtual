@@ -84,7 +84,7 @@ const isAtTop = (instance: Virtualizer<Element, Element>) => {
   return (virtualItems[0]?.index ?? 0) <= 1;
 };
 
-const isAtBottom = (instance: Virtualizer<Element, Element>) => {
+export const isAtBottom = (instance: Virtualizer<Element, Element>) => {
   const virtualItems = instance.getVirtualItems();
   return (virtualItems[virtualItems.length - 1]?.index ?? -1) >=
     instance.options.count - 2;
@@ -297,17 +297,13 @@ export function useChatScroll<TMessage>(
 
   // 首次进入列表滚到底
   useLayoutEffect(() => {
-    if (!messages.length) return;
     if (initializedRef.current) return;
 
     initializedRef.current = true;
-
-    if (!hasBottom) {
-      requestAnimationFrame(() => {
-        scrollToLoadedBottom();
-      });
-    }
-  }, [hasBottom, messages.length, scrollToLoadedBottom]);
+    requestAnimationFrame(() => {
+      scrollToLoadedBottom();
+    });
+  }, [messages.length, scrollToLoadedBottom]);
 
   useLayoutEffect(() => {
     const anchor = upperAnchorRef.current;
@@ -332,17 +328,9 @@ export function useChatScroll<TMessage>(
           virtualizer.scrollToOffset(itemStart - anchor.offsetFromViewportTop);
         }
       }
-
       upperAnchorRef.current = null;
-      return;
     }
-  }, [chatRows, hasBottom, scheduleScrollToBottom, virtualizer]);
-
-  useLayoutEffect(() => {
-    if (initializedRef.current && isAtBottom(virtualizer)) {
-      scheduleScrollToBottom();
-    }
-  }, [hasBottom, scheduleScrollToBottom, virtualizer]);
+  }, [messages.length, virtualizer]);
 
   const virtualItems = virtualizer.getVirtualItems();
   const virtualRows = useMemo(
