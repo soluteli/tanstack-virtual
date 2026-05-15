@@ -51,9 +51,6 @@ export function ChatMessagesJumpNoBottomDemo() {
 
   const [loadingUpper, setLoadingUpper] = React.useState(false);
   const [jumpStatus, setJumpStatus] = React.useState("Ready");
-  const [highlightedMessageId, setHighlightedMessageId] = React.useState<
-    number | null
-  >(null);
 
   const loadUpper = React.useCallback(async () => {
     const startingOldestId = chatServer.getOldestMessageId(controller.messages);
@@ -142,7 +139,6 @@ export function ChatMessagesJumpNoBottomDemo() {
 
     if (!didScroll) {
       latestScroll.endScrollIsolation(isolationToken);
-      setHighlightedMessageId(null);
       setJumpStatus(`Message ${targetId} is not loaded`);
       return;
     }
@@ -156,7 +152,7 @@ export function ChatMessagesJumpNoBottomDemo() {
     });
 
     scrollRef.current.endScrollIsolation(isolationToken);
-    setHighlightedMessageId(targetId);
+    controller.highlightMessage(targetId);
     setJumpStatus(`Jumped to ${targetId}`);
   }, [chatServer, controller, isCurrentJump, scroll]);
 
@@ -245,7 +241,9 @@ export function ChatMessagesJumpNoBottomDemo() {
                   }
                 >
                   <MessageRow
-                    highlighted={row.message.id === highlightedMessageId}
+                    highlighted={
+                      row.message.id === controller.highlightedMessageId
+                    }
                     message={row.message}
                   />
                 </div>

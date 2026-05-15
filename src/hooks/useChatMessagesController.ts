@@ -1,10 +1,11 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export interface UseChatMessagesControllerOptions<TMessage> {
   initialMessages: readonly TMessage[] | (() => readonly TMessage[]);
   initialHasUpper?: boolean;
   initialHasBottom?: boolean;
   initialNewMessageCount?: number;
+  highlightDurationMs?: number;
 }
 
 export interface ChatMessagesTransitionOptions<TMessage> {
@@ -30,6 +31,7 @@ export interface UseChatMessagesControllerReturn<TMessage> {
   hasUpper: boolean;
   hasBottom: boolean;
   newMessageCount: number;
+  highlightedMessageId: number | null;
   replaceWindow: (
     messages: readonly TMessage[],
     options?: ReplaceChatMessagesWindowOptions,
@@ -47,6 +49,7 @@ export interface UseChatMessagesControllerReturn<TMessage> {
     options?: AppendRealtimeMessagesOptions<TMessage>,
   ) => void;
   clearNewMessageCount: () => void;
+  highlightMessage: (messageId: number) => void;
 }
 
 interface ChatMessagesWindowState<TMessage> {
@@ -75,6 +78,7 @@ export function useChatMessagesController<TMessage>({
   initialHasUpper = false,
   initialHasBottom = false,
   initialNewMessageCount = 0,
+  highlightDurationMs = 1600,
 }: UseChatMessagesControllerOptions<TMessage>): UseChatMessagesControllerReturn<TMessage> {
   const [windowState, setWindowState] = useState<
     ChatMessagesWindowState<TMessage>
@@ -84,6 +88,17 @@ export function useChatMessagesController<TMessage>({
     hasBottom: initialHasBottom,
     newMessageCount: initialNewMessageCount,
   }));
+  const [highlightedMessageId, setHighlightedMessageId] = useState<
+    number | null
+  >(null);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelHighlightTimer = useCallback(() => {
+    if (highlightTimerRef.current === null) return;
+
+    clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = null;
+  }, []);
 
   const replaceWindow = useCallback(
     (
@@ -178,22 +193,45 @@ export function useChatMessagesController<TMessage>({
     }));
   }, []);
 
+  const highlightMessage = useCallback(
+    (messageId: number) => {
+      cancelHighlightTimer();
+      setHighlightedMessageId(messageId);
+      highlightTimerRef.current = setTimeout(() => {
+        highlightTimerRef.current = null;
+        setHighlightedMessageId(null);
+      }, highlightDurationMs);
+    },
+    [cancelHighlightTimer, highlightDurationMs],
+  );
+
+  useEffect(
+    () => () => {
+      cancelHighlightTimer();
+    },
+    [cancelHighlightTimer],
+  );
+
   return useMemo(
     () => ({
       messages: windowState.messages,
       hasUpper: windowState.hasUpper,
       hasBottom: windowState.hasBottom,
       newMessageCount: windowState.newMessageCount,
+      highlightedMessageId,
       replaceWindow,
       prependMessages,
       appendMessages,
       appendRealtimeMessages,
       clearNewMessageCount,
+      highlightMessage,
     }),
     [
       appendMessages,
       appendRealtimeMessages,
       clearNewMessageCount,
+      highlightMessage,
+      highlightedMessageId,
       prependMessages,
       replaceWindow,
       windowState.hasBottom,
