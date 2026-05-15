@@ -1,22 +1,13 @@
 import React from "react";
 import { useChatMessagesController } from "../hooks/useChatMessagesController";
 import { isAtBottom, useChatScroll } from "../hooks/useChatScroll";
-import type { MessageWithImage } from "../utils/mockdata";
 import { getDebugInfo } from "../utils/devHelpers";
 import {
-  CHAT_MESSAGES_DEMO_INITIAL_LATEST_ID,
-  CHAT_MESSAGES_DEMO_PAGE_SIZE,
-  fetchNextChatMessages,
-  fetchPreviousChatMessages,
-  getInitialChatMessages,
-  getNewestMessageId,
-  getOldestMessageId,
-  getRealtimeChatMessages,
-  hasBottomMessages,
-  hasUpperMessages,
-} from "../utils/chatMessagesDemoData";
+  createChatServer,
+  type ChatMessage,
+} from "../utils/createChatServer";
 
-function MessageRow({ message }: { message: MessageWithImage }) {
+function MessageRow({ message }: { message: ChatMessage }) {
   return (
     <div style={{ padding: "10px 0" }}>
       <div>Row {message.id}</div>
@@ -30,55 +21,54 @@ function MessageRow({ message }: { message: MessageWithImage }) {
 
 export function ChatMessagesNewMessageToast() {
   const parentRef = React.useRef<HTMLDivElement>(null);
-  const conversationLatestIdRef = React.useRef(
-    CHAT_MESSAGES_DEMO_INITIAL_LATEST_ID,
-  );
+  const chatServer = React.useMemo(() => createChatServer(), []);
   const initialMessages = React.useMemo(
-    () => getInitialChatMessages("latest", CHAT_MESSAGES_DEMO_PAGE_SIZE),
-    [],
+    () => chatServer.getInitialMessages("latest", chatServer.pageSize),
+    [chatServer],
   );
-  const controller = useChatMessagesController<MessageWithImage>({
+  const controller = useChatMessagesController<ChatMessage>({
     initialMessages,
-    initialHasUpper: hasUpperMessages(initialMessages),
-    initialHasBottom: hasBottomMessages(
+    initialHasUpper: chatServer.hasUpperMessages(initialMessages),
+    initialHasBottom: chatServer.hasBottomMessages(
       initialMessages,
-      conversationLatestIdRef.current,
+      chatServer.latestMessageId,
     ),
   });
 
   const loadUpper = React.useCallback(async () => {
-    const startingOldestId = getOldestMessageId(controller.messages);
+    const startingOldestId = chatServer.getOldestMessageId(controller.messages);
     if (startingOldestId === undefined || startingOldestId <= 0) return;
 
-    const previousMessages = await fetchPreviousChatMessages(
+    const previousMessages = await chatServer.fetchPreviousMessages(
       startingOldestId,
-      CHAT_MESSAGES_DEMO_PAGE_SIZE,
+      chatServer.pageSize,
     );
 
     controller.prependMessages(previousMessages, {
-      hasUpper: hasUpperMessages(previousMessages),
+      hasUpper: chatServer.hasUpperMessages(previousMessages),
       guard: (currentMessages) =>
-        getOldestMessageId(currentMessages) === startingOldestId,
+        chatServer.getOldestMessageId(currentMessages) === startingOldestId,
     });
-  }, [controller.messages, controller.prependMessages]);
+  }, [chatServer, controller.messages, controller.prependMessages]);
 
   const loadBottom = React.useCallback(async () => {
-    const startingNewestId = getNewestMessageId(controller.messages);
+    const startingNewestId = chatServer.getNewestMessageId(controller.messages);
     if (startingNewestId === undefined) return;
 
-    const nextMessages = await fetchNextChatMessages(
+    const nextMessages = await chatServer.fetchNextMessages(
       startingNewestId,
-      conversationLatestIdRef.current,
-      CHAT_MESSAGES_DEMO_PAGE_SIZE,
+      chatServer.latestMessageId,
+      chatServer.pageSize,
     );
-    const nextNewestId = getNewestMessageId(nextMessages) ?? startingNewestId;
+    const nextNewestId =
+      chatServer.getNewestMessageId(nextMessages) ?? startingNewestId;
 
     controller.appendMessages(nextMessages, {
-      hasBottom: nextNewestId < conversationLatestIdRef.current,
+      hasBottom: nextNewestId < chatServer.latestMessageId,
       guard: (currentMessages) =>
-        getNewestMessageId(currentMessages) === startingNewestId,
+        chatServer.getNewestMessageId(currentMessages) === startingNewestId,
     });
-  }, [controller.appendMessages, controller.messages]);
+  }, [chatServer, controller.appendMessages, controller.messages]);
 
   const onLatestMessageRead = React.useCallback(async () => {
     controller.clearNewMessageCount()
@@ -97,16 +87,14 @@ export function ChatMessagesNewMessageToast() {
   });
 
   const pushMessages = (count: number) => {
-    const previousLatestId = conversationLatestIdRef.current;
-    const nextMessages = getRealtimeChatMessages(previousLatestId, count);
-    const nextLatestId = getNewestMessageId(nextMessages) ?? previousLatestId;
+    const previousLatestId = chatServer.latestMessageId;
     const isLoadedAtConversationLatest =
-      getNewestMessageId(controller.messages) === previousLatestId;
+      chatServer.getNewestMessageId(controller.messages) === previousLatestId;
+    const nextMessages = chatServer.getRealtimeMessages(count);
 
     const isNew = !isAtBottom(scroll.virtualizer)
     console.log("🚀 ~ pushMessages ~ isNew:", isNew)
 
-    conversationLatestIdRef.current = nextLatestId;
     controller.appendRealtimeMessages(nextMessages, {
       appendToWindow: isLoadedAtConversationLatest,
       hasBottom: !isLoadedAtConversationLatest,

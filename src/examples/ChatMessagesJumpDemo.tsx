@@ -1,21 +1,11 @@
 import React from "react";
 import { useChatMessagesController } from "../hooks/useChatMessagesController";
 import { isAtBottom, useChatScroll } from "../hooks/useChatScroll";
-import type { MessageWithImage } from "../utils/mockdata";
 import { getDebugInfo } from "../utils/devHelpers";
 import {
-  CHAT_MESSAGES_DEMO_INITIAL_LATEST_ID,
-  CHAT_MESSAGES_DEMO_PAGE_SIZE,
-  fetchMessagesAround,
-  fetchNextChatMessages,
-  fetchPreviousChatMessages,
-  getInitialChatMessages,
-  getNewestMessageId,
-  getOldestMessageId,
-  getRealtimeChatMessages,
-  hasBottomMessages,
-  hasUpperMessages,
-} from "../utils/chatMessagesDemoData";
+  createChatServer,
+  type ChatMessage,
+} from "../utils/createChatServer";
 
 interface PendingJump {
   requestId: number;
@@ -29,10 +19,10 @@ const waitForFrame = () =>
   });
 
 const mergeMessagesById = (
-  currentMessages: readonly MessageWithImage[],
-  nextMessages: readonly MessageWithImage[],
+  currentMessages: readonly ChatMessage[],
+  nextMessages: readonly ChatMessage[],
 ) => {
-  const messagesById = new Map<number, MessageWithImage>();
+  const messagesById = new Map<number, ChatMessage>();
 
   currentMessages.forEach((message) => {
     messagesById.set(message.id, message);
@@ -49,7 +39,7 @@ function MessageRow({
   message,
 }: {
   highlighted: boolean;
-  message: MessageWithImage;
+  message: ChatMessage;
 }) {
   return (
     <div
@@ -67,24 +57,22 @@ function MessageRow({
 
 export function ChatMessagesJumpDemo() {
   const parentRef = React.useRef<HTMLDivElement>(null);
-  const conversationLatestIdRef = React.useRef(
-    CHAT_MESSAGES_DEMO_INITIAL_LATEST_ID,
-  );
+  const chatServer = React.useMemo(() => createChatServer(), []);
   const jumpRequestIdRef = React.useRef(0);
   const pendingJumpRef = React.useRef<PendingJump | null>(null);
   const highlightTimeoutRef = React.useRef<number | null>(null);
-  const messagesRef = React.useRef<readonly MessageWithImage[]>([]);
+  const messagesRef = React.useRef<readonly ChatMessage[]>([]);
 
   const initialMessages = React.useMemo(
-    () => getInitialChatMessages("middle", CHAT_MESSAGES_DEMO_PAGE_SIZE),
-    [],
+    () => chatServer.getInitialMessages("middle", chatServer.pageSize),
+    [chatServer],
   );
-  const controller = useChatMessagesController<MessageWithImage>({
+  const controller = useChatMessagesController<ChatMessage>({
     initialMessages,
-    initialHasUpper: hasUpperMessages(initialMessages),
-    initialHasBottom: hasBottomMessages(
+    initialHasUpper: chatServer.hasUpperMessages(initialMessages),
+    initialHasBottom: chatServer.hasBottomMessages(
       initialMessages,
-      conversationLatestIdRef.current,
+      chatServer.latestMessageId,
     ),
   });
 
@@ -97,38 +85,39 @@ export function ChatMessagesJumpDemo() {
   messagesRef.current = controller.messages;
 
   const loadUpper = React.useCallback(async () => {
-    const startingOldestId = getOldestMessageId(controller.messages);
+    const startingOldestId = chatServer.getOldestMessageId(controller.messages);
     if (startingOldestId === undefined || startingOldestId <= 0) return;
 
-    const previousMessages = await fetchPreviousChatMessages(
+    const previousMessages = await chatServer.fetchPreviousMessages(
       startingOldestId,
-      CHAT_MESSAGES_DEMO_PAGE_SIZE,
+      chatServer.pageSize,
     );
 
     controller.prependMessages(previousMessages, {
-      hasUpper: hasUpperMessages(previousMessages),
+      hasUpper: chatServer.hasUpperMessages(previousMessages),
       guard: (currentMessages) =>
-        getOldestMessageId(currentMessages) === startingOldestId,
+        chatServer.getOldestMessageId(currentMessages) === startingOldestId,
     });
-  }, [controller.messages, controller.prependMessages]);
+  }, [chatServer, controller.messages, controller.prependMessages]);
 
   const loadBottom = React.useCallback(async () => {
-    const startingNewestId = getNewestMessageId(controller.messages);
+    const startingNewestId = chatServer.getNewestMessageId(controller.messages);
     if (startingNewestId === undefined) return;
 
-    const nextMessages = await fetchNextChatMessages(
+    const nextMessages = await chatServer.fetchNextMessages(
       startingNewestId,
-      conversationLatestIdRef.current,
-      CHAT_MESSAGES_DEMO_PAGE_SIZE,
+      chatServer.latestMessageId,
+      chatServer.pageSize,
     );
-    const nextNewestId = getNewestMessageId(nextMessages) ?? startingNewestId;
+    const nextNewestId =
+      chatServer.getNewestMessageId(nextMessages) ?? startingNewestId;
 
     controller.appendMessages(nextMessages, {
-      hasBottom: nextNewestId < conversationLatestIdRef.current,
+      hasBottom: nextNewestId < chatServer.latestMessageId,
       guard: (currentMessages) =>
-        getNewestMessageId(currentMessages) === startingNewestId,
+        chatServer.getNewestMessageId(currentMessages) === startingNewestId,
     });
-  }, [controller.appendMessages, controller.messages]);
+  }, [chatServer, controller.appendMessages, controller.messages]);
 
   const scroll = useChatScroll({
     getScrollElement: () => parentRef.current,
@@ -224,10 +213,10 @@ export function ChatMessagesJumpDemo() {
 
     const targetId = Math.max(
       0,
-      Math.min(parsedTargetId, conversationLatestIdRef.current),
+      Math.min(parsedTargetId, chatServer.latestMessageId),
     );
-    const oldestId = getOldestMessageId(controller.messages);
-    const newestId = getNewestMessageId(controller.messages);
+    const oldestId = chatServer.getOldestMessageId(controller.messages);
+    const newestId = chatServer.getNewestMessageId(controller.messages);
     if (oldestId === undefined || newestId === undefined) return;
 
     const requestId = jumpRequestIdRef.current + 1;
@@ -241,14 +230,14 @@ export function ChatMessagesJumpDemo() {
     }
 
     setJumpStatus(`Loading around ${targetId}...`);
-    const result = await fetchMessagesAround(
+    const result = await chatServer.fetchMessagesAround(
       targetId,
       {
         oldestId,
         newestId,
-        conversationLatestId: conversationLatestIdRef.current,
+        conversationLatestId: chatServer.latestMessageId,
       },
-      CHAT_MESSAGES_DEMO_PAGE_SIZE,
+      chatServer.pageSize,
     );
 
     if (!isCurrentJump(requestId)) return;
@@ -265,27 +254,25 @@ export function ChatMessagesJumpDemo() {
     );
 
     controller.replaceWindow(mergedMessages, {
-      hasUpper: (getOldestMessageId(mergedMessages) ?? 0) > 0,
+      hasUpper: (chatServer.getOldestMessageId(mergedMessages) ?? 0) > 0,
       hasBottom:
-        (getNewestMessageId(mergedMessages) ?? conversationLatestIdRef.current) <
-        conversationLatestIdRef.current,
+        (chatServer.getNewestMessageId(mergedMessages) ??
+          chatServer.latestMessageId) < chatServer.latestMessageId,
     });
   }, [
+    chatServer,
     controller,
     finishJump,
     isCurrentJump,
     scroll,
-    targetInput,
   ]);
 
   const pushMessages = (count: number) => {
-    const previousLatestId = conversationLatestIdRef.current;
-    const nextMessages = getRealtimeChatMessages(previousLatestId, count);
-    const nextLatestId = getNewestMessageId(nextMessages) ?? previousLatestId;
+    const previousLatestId = chatServer.latestMessageId;
     const isLoadedAtConversationLatest =
-      getNewestMessageId(controller.messages) === previousLatestId;
+      chatServer.getNewestMessageId(controller.messages) === previousLatestId;
+    const nextMessages = chatServer.getRealtimeMessages(count);
 
-    conversationLatestIdRef.current = nextLatestId;
     controller.appendRealtimeMessages(nextMessages, {
       appendToWindow: isLoadedAtConversationLatest,
       hasBottom: !isLoadedAtConversationLatest,
@@ -300,7 +287,7 @@ export function ChatMessagesJumpDemo() {
         <input
           type="number"
           min={0}
-          max={conversationLatestIdRef.current}
+          max={chatServer.latestMessageId}
           value={targetInput}
           onChange={(event) => setTargetInput(event.target.value)}
           style={{ width: 80 }}

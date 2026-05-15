@@ -1,17 +1,13 @@
 import React from "react";
 import { useChatMessagesController } from "../hooks/useChatMessagesController";
 import { useChatScroll } from "../hooks/useChatScroll";
-import type { MessageWithImage } from "../utils/mockdata";
 import { getDebugInfo } from "../utils/devHelpers";
 import {
-  CHAT_MESSAGES_DEMO_PAGE_SIZE,
-  fetchPreviousChatMessages,
-  getInitialChatMessages,
-  getOldestMessageId,
-  hasUpperMessages,
-} from "../utils/chatMessagesDemoData";
+  createChatServer,
+  type ChatMessage,
+} from "../utils/createChatServer";
 
-function MessageRow({ message }: { message: MessageWithImage }) {
+function MessageRow({ message }: { message: ChatMessage }) {
   return (
     <div style={{ padding: "10px 0" }}>
       <div>Row {message.id}</div>
@@ -25,31 +21,32 @@ function MessageRow({ message }: { message: MessageWithImage }) {
 
 export function ChatMessages() {
   const parentRef = React.useRef<HTMLDivElement>(null);
+  const chatServer = React.useMemo(() => createChatServer(), []);
   const initialMessages = React.useMemo(
-    () => getInitialChatMessages("middle", CHAT_MESSAGES_DEMO_PAGE_SIZE),
-    [],
+    () => chatServer.getInitialMessages("middle", chatServer.pageSize),
+    [chatServer],
   );
 
-  const controller = useChatMessagesController<MessageWithImage>({
+  const controller = useChatMessagesController<ChatMessage>({
     initialMessages,
-    initialHasUpper: hasUpperMessages(initialMessages),
+    initialHasUpper: chatServer.hasUpperMessages(initialMessages),
   });
 
   const loadUpper = React.useCallback(async () => {
-    const startingOldestId = getOldestMessageId(controller.messages);
+    const startingOldestId = chatServer.getOldestMessageId(controller.messages);
     if (startingOldestId === undefined || startingOldestId <= 0) return;
 
-    const previousMessages = await fetchPreviousChatMessages(
+    const previousMessages = await chatServer.fetchPreviousMessages(
       startingOldestId,
-      CHAT_MESSAGES_DEMO_PAGE_SIZE,
+      chatServer.pageSize,
     );
 
     controller.prependMessages(previousMessages, {
-      hasUpper: hasUpperMessages(previousMessages),
+      hasUpper: chatServer.hasUpperMessages(previousMessages),
       guard: (currentMessages) =>
-        getOldestMessageId(currentMessages) === startingOldestId,
+        chatServer.getOldestMessageId(currentMessages) === startingOldestId,
     });
-  }, [controller.messages, controller.prependMessages]);
+  }, [chatServer, controller.messages, controller.prependMessages]);
 
   const scroll = useChatScroll({
     getScrollElement: () => parentRef.current,
