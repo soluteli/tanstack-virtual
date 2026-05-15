@@ -343,6 +343,7 @@ export function useChatScroll<TMessage>(
 
   // 维持 prepend 场景下的滚动位置
   useLayoutEffect(() => {
+    if (!initializedRef.current) return;
     const anchor = upperAnchorRef.current;
     if (anchor) {
       /**
