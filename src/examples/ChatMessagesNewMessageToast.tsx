@@ -126,94 +126,95 @@ export function ChatMessagesNewMessageToast() {
           controller.hasBottom,
         )}{" "}
       </div>
-      <div
-        ref={parentRef}
-        className="List"
-        style={{
-          height: 400,
-          width: "80%",
-          overflowY: "auto",
-          contain: "strict",
-          overflowAnchor: "none",
-        }}
-      >
+      <div style={{ position: "relative", height: 400, width: "80%" }}>
         <div
+          ref={parentRef}
+          className="List"
           style={{
-            height: scroll.totalHeight,
+            height: "100%",
             width: "100%",
-            position: "relative",
+            overflowY: "auto",
+            contain: "strict",
+            overflowAnchor: "none",
           }}
         >
           <div
             style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
+              height: scroll.totalHeight,
               width: "100%",
-              transform: `translateY(${
-                scroll.virtualRows[0]?.virtualItem.start ?? 0
-              }px)`,
+              position: "relative",
             }}
           >
-            {scroll.virtualRows.map((row) => {
-              const virtualRow = row.virtualItem;
+            <div
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                transform: `translateY(${
+                  scroll.virtualRows[0]?.virtualItem.start ?? 0
+                }px)`,
+              }}
+            >
+              {scroll.virtualRows.map((row) => {
+                const virtualRow = row.virtualItem;
 
-              if (row.type === "upper-loading") {
+                if (row.type === "upper-loading") {
+                  return (
+                    <div
+                      key={virtualRow.key}
+                      data-index={virtualRow.index}
+                      ref={scroll.virtualizer.measureElement}
+                    >
+                      loading previous...
+                    </div>
+                  );
+                }
+
+                if (row.type === "lower-loading") {
+                  return (
+                    <div
+                      key={virtualRow.key}
+                      data-index={virtualRow.index}
+                      ref={scroll.virtualizer.measureElement}
+                    >
+                      loading next...
+                    </div>
+                  );
+                }
+
                 return (
                   <div
                     key={virtualRow.key}
                     data-index={virtualRow.index}
                     ref={scroll.virtualizer.measureElement}
+                    className={
+                      virtualRow.index % 2 ? "ListItemOdd" : "ListItemEven"
+                    }
                   >
-                    loading previous...
+                    <MessageRow message={row.message} />
                   </div>
                 );
-              }
-
-              if (row.type === "lower-loading") {
-                return (
-                  <div
-                    key={virtualRow.key}
-                    data-index={virtualRow.index}
-                    ref={scroll.virtualizer.measureElement}
-                  >
-                    loading next...
-                  </div>
-                );
-              }
-
-              return (
-                <div
-                  key={virtualRow.key}
-                  data-index={virtualRow.index}
-                  ref={scroll.virtualizer.measureElement}
-                  className={
-                    virtualRow.index % 2 ? "ListItemOdd" : "ListItemEven"
-                  }
-                >
-                  <MessageRow message={row.message} />
-                </div>
-              );
-            })}
+              })}
+            </div>
           </div>
-          {controller.newMessageCount > 0 ? (
-              <button
-                onClick={() => {
-                  scroll.scrollToLoadedBottom();
-                  controller.clearNewMessageCount();
-                }}
-                style={{
-                  position: 'absolute',
-                  right: 24,
-                  top: (scroll.virtualizer.scrollOffset ?? 0) + (scroll.virtualizer.scrollRect?.height ?? 400) - 24,
-                  transform: 'translateY(-100%)',
-                  zIndex: 1
-                }}
-              >
-                {controller.newMessageCount} 条新消息
-              </button>
-            ) : null}
         </div>
+        {controller.newMessageCount > 0 ? (
+          <button
+            onClick={() => {
+              scroll.scrollToLoadedBottom();
+              controller.clearNewMessageCount();
+            }}
+            style={{
+              position: "absolute",
+              right: 24,
+              bottom: 24,
+              zIndex: 1,
+            }}
+          >
+            {controller.newMessageCount} 条新消息
+          </button>
+        ) : null}
       </div>
     </div>
   );
