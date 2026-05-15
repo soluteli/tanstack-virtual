@@ -135,7 +135,6 @@ export function ChatMessagesNewMessageToast() {
           overflowY: "auto",
           contain: "strict",
           overflowAnchor: "none",
-          position: 'relative'
         }}
       >
         <div
@@ -197,23 +196,24 @@ export function ChatMessagesNewMessageToast() {
               );
             })}
           </div>
+          {controller.newMessageCount > 0 ? (
+              <button
+                onClick={() => {
+                  scroll.scrollToLoadedBottom();
+                  controller.clearNewMessageCount();
+                }}
+                style={{
+                  position: 'absolute',
+                  right: 24,
+                  top: (scroll.virtualizer.scrollOffset ?? 0) + (scroll.virtualizer.scrollRect?.height ?? 400) - 24,
+                  transform: 'translateY(-100%)',
+                  zIndex: 1
+                }}
+              >
+                {controller.newMessageCount} 条新消息
+              </button>
+            ) : null}
         </div>
-        {controller.newMessageCount > 0 ? (
-            <button
-              onClick={() => {
-                scroll.scrollToLoadedBottom();
-                controller.clearNewMessageCount();
-              }}
-              style={{
-                position: "absolute",
-                right: 24,
-                bottom: 24,
-                zIndex: 1,
-              }}
-            >
-              {controller.newMessageCount} 条新消息
-            </button>
-          ) : null}
       </div>
     </div>
   );
