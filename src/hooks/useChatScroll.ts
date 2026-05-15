@@ -30,6 +30,7 @@ export interface UseChatScrollOptions<TMessage> {
   hasUpper?: boolean;
   onLoadBottom?: () => Promise<void>;
   hasBottom?: boolean;
+  onLatestMessageRead?: () => void;
 }
 
 export interface UseChatScrollReturn<TMessage> {
@@ -112,6 +113,7 @@ export function useChatScroll<TMessage>(
     hasUpper,
     onLoadBottom,
     hasBottom,
+    onLatestMessageRead
   } = options;
 
   const stickToBottomRef = useRef(true);
@@ -131,6 +133,9 @@ export function useChatScroll<TMessage>(
 
   const hasBottomRef = useRef(hasBottom);
   hasBottomRef.current = hasBottom;
+
+  const onLatestMessageReadRef = useRef(onLatestMessageRead);
+  onLatestMessageReadRef.current = onLatestMessageRead;
 
   const upperAnchorRef = useRef<UpperAnchor | null>(null);
 
@@ -236,6 +241,10 @@ export function useChatScroll<TMessage>(
     overscan: 5,
     getItemKey: (index) => chatRows[index]?.key ?? index,
     onChange: async (instance, sync) => {
+      if (!hasBottomRef.current && isAtBottom(instance)) {
+        onLatestMessageReadRef.current?.()
+      }
+
       if (!sync) return;
 
       stickToBottomRef.current = isAtBottom(instance)

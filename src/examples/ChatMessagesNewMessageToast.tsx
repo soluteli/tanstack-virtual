@@ -80,6 +80,11 @@ export function ChatMessagesNewMessageToast() {
     });
   }, [controller.appendMessages, controller.messages]);
 
+  const onLatestMessageRead = React.useCallback(async () => {
+    controller.clearNewMessageCount()
+  }, [controller.clearNewMessageCount])
+
+
   const scroll = useChatScroll({
     getScrollElement: () => parentRef.current,
     messages: controller.messages,
@@ -88,6 +93,7 @@ export function ChatMessagesNewMessageToast() {
     hasUpper: controller.hasUpper,
     onLoadBottom: loadBottom,
     hasBottom: controller.hasBottom,
+    onLatestMessageRead
   });
 
   const pushMessages = (count: number) => {
