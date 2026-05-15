@@ -79,16 +79,26 @@ const getLoadedBottomIndex = <TMessage,>(
   return -1;
 };
 
-const isAtTop = (instance: Virtualizer<Element, Element>) => {
+// Overscan 判断到第一个渲染的 item 渲染时，表示已接近到顶部
+const isNearTop = (instance: Virtualizer<Element, Element>) => {
   const virtualItems = instance.getVirtualItems();
   return (virtualItems[0]?.index ?? 0) <= 1;
 };
 
-// FIX: 考虑一下 overscan
-export const isAtBottom = (instance: Virtualizer<Element, Element>) => {
+// Overscan 判断到最后一个渲染的 item 渲染时，表示已接近到底部
+export const isNearBottom = (instance: Virtualizer<Element, Element>) => {
   const virtualItems = instance.getVirtualItems();
   return (virtualItems[virtualItems.length - 1]?.index ?? -1) >=
     instance.options.count - 1;
+};
+
+// 判断可 virtualItems 中最后一个是否在视口内
+export const isAtBottom = (instance: Virtualizer<Element, Element>) => {
+  const virtualItems = instance.getVirtualItems();
+  const viewportEnd = (instance.scrollOffset ?? 0) + (instance.scrollRect?.height ?? 0)
+  const isLastVirtualItemInViewport = (virtualItems[virtualItems.length - 1]?.start ?? 0) < viewportEnd
+  const nearBottom = isNearBottom(instance) 
+  return nearBottom && isLastVirtualItemInViewport
 };
 
 export function useChatScroll<TMessage>(
@@ -229,7 +239,6 @@ export function useChatScroll<TMessage>(
       if (!sync) return;
 
       stickToBottomRef.current = isAtBottom(instance)
-
       if (stickToBottomRef.current) {
         upperAnchorRef.current = null;
       }
@@ -239,7 +248,7 @@ export function useChatScroll<TMessage>(
         updateUpperAnchor(instance);
       }
 
-      const nearTop = isAtTop(instance);
+      const nearTop = isNearTop(instance);
       if (nearTop && !isLoadingUpperRef.current) {
         isLoadingUpperRef.current = true;
         try {
@@ -248,7 +257,7 @@ export function useChatScroll<TMessage>(
         isLoadingUpperRef.current = false;
       }
 
-      const nearBottom = isAtBottom(instance);
+      const nearBottom = isNearBottom(instance);
       if (nearBottom && !isLoadingBottomRef.current) {
         isLoadingBottomRef.current = true;
         try {
@@ -315,9 +324,9 @@ export function useChatScroll<TMessage>(
   // 新消息 append 进入列表滚到底
   useLayoutEffect(() => {
     if (!initializedRef.current) return;
-
     // 数量变多，并且在底部
-    if (totalCountDelta.current > 0 && isAtBottom(virtualizer)) {
+    // USE stickToBottomRef.current as it can get prev atBottom status
+    if (totalCountDelta.current > 0 && stickToBottomRef.current) {
       scheduleScrollToBottom()
     }
     totalCountDelta.current = 0
