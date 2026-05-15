@@ -6,8 +6,21 @@ import {
 export type ChatMessagesDemoInitialMode = "latest" | "middle";
 
 export const CHAT_MESSAGES_DEMO_PAGE_SIZE = 20;
-export const CHAT_MESSAGES_DEMO_INITIAL_LATEST_ID = 109;
-export const CHAT_MESSAGES_DEMO_FETCH_DELAY = 2000;
+export const CHAT_MESSAGES_DEMO_INITIAL_LATEST_ID = 309;
+export const CHAT_MESSAGES_DEMO_FETCH_DELAY = 5000;
+
+export interface ChatMessagesLoadedRange {
+  oldestId: number;
+  newestId: number;
+  conversationLatestId: number;
+}
+
+export interface FetchMessagesAroundResult {
+  messages: MessageWithImage[];
+  direction: "loaded" | "upper" | "bottom";
+  hasUpper: boolean;
+  hasBottom: boolean;
+}
 
 const delay = (duration: number) =>
   new Promise<void>((resolve) => {
@@ -94,4 +107,57 @@ export const fetchNextChatMessages = async (
     start: newestLoadedId + 1,
     size: count,
   });
+};
+
+export const fetchMessagesAround = async (
+  targetMessageId: number,
+  loadedRange: ChatMessagesLoadedRange,
+  pageSize = CHAT_MESSAGES_DEMO_PAGE_SIZE,
+): Promise<FetchMessagesAroundResult> => {
+  await delay(CHAT_MESSAGES_DEMO_FETCH_DELAY);
+
+  const targetId = Math.max(
+    0,
+    Math.min(targetMessageId, loadedRange.conversationLatestId),
+  );
+
+  if (
+    targetId >= loadedRange.oldestId &&
+    targetId <= loadedRange.newestId
+  ) {
+    return {
+      messages: [],
+      direction: "loaded",
+      hasUpper: loadedRange.oldestId > 0,
+      hasBottom: loadedRange.newestId < loadedRange.conversationLatestId,
+    };
+  }
+
+  if (targetId < loadedRange.oldestId) {
+    const start = Math.max(0, Math.floor(targetId / pageSize) * pageSize);
+    const count = loadedRange.oldestId - start;
+
+    return {
+      messages: genMessagesListHistory({ start, size: count }),
+      direction: "upper",
+      hasUpper: start > 0,
+      hasBottom: loadedRange.newestId < loadedRange.conversationLatestId,
+    };
+  }
+
+  const end = Math.min(
+    loadedRange.conversationLatestId + 1,
+    Math.ceil((targetId + 1) / pageSize) * pageSize,
+  );
+  const count = end - loadedRange.newestId - 1;
+
+  return {
+    messages: genMessagesListHistory({
+      start: loadedRange.newestId + 1,
+      size: count,
+    }),
+    direction: "bottom",
+    hasUpper: loadedRange.oldestId > 0,
+    hasBottom: end - 1 < loadedRange.conversationLatestId,
+  };
 };

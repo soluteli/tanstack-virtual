@@ -7,8 +7,7 @@ import { GridVirtualizerDynamic } from './examples/GridVirtualizerDynamic'
 import { generateColumns, generateData, RowVirtualizerExperimental } from './examples/RowVirtualizerExperimental'
 import { RowVirtualizerDynamic } from './examples/RowVirtualizerDynamic'
 import { ChatMessages } from './examples/ChatMessages'
-import { ChatMessagesFullDemo } from './examples/ChatMessagesFullDemo'
-import { ChatMessagesMiddleWindow } from './examples/ChatMessagesMiddleWindow'
+import { ChatMessagesJumpDemo } from './examples/ChatMessagesJumpDemo'
 import { ChatMessagesNewMessageToast } from './examples/ChatMessagesNewMessageToast'
 
 import './index.css'
@@ -43,6 +42,9 @@ function App() {
           <li>
             <a href="/chat-new-message-toast">chat new message toast</a>
           </li>
+          <li>
+            <a href="/chat-jump">chat jump</a>
+          </li>
         </ul>
       </nav>
       {(() => {
@@ -62,6 +64,8 @@ function App() {
             return <ChatMessages />
           case '/chat-new-message-toast':
             return <ChatMessagesNewMessageToast />
+          case '/chat-jump':
+            return <ChatMessagesJumpDemo />
           default:
             return <div>Not found</div>
         }

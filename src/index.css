@@ -21,3 +21,17 @@ body {
 .ListItemEven {
   background-color: #e6e4dc;
 }
+
+.ChatMessageJumpHighlight {
+  animation: chat-message-jump-highlight 1400ms ease-out;
+}
+
+@keyframes chat-message-jump-highlight {
+  0% {
+    background-color: #fff3a3;
+  }
+
+  100% {
+    background-color: transparent;
+  }
+}
