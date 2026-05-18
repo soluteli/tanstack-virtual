@@ -89,7 +89,6 @@ export function ChatMessagesJumpNoBottomDemo() {
 
   const jumpToInRangeMessage = React.useCallback(async (
     targetId: number,
-    isolationToken: number,
   ) => {
     setJumpStatus(`Jumping to ${targetId}...`);
 
@@ -99,8 +98,6 @@ export function ChatMessagesJumpNoBottomDemo() {
       behavior: "smooth",
     });
 
-    scrollRef.current.endScrollIsolation(isolationToken);
-    controller.highlightMessage(targetId);
     setJumpStatus(`Jumped to ${targetId}`);
   }, [controller]);
 
@@ -140,7 +137,7 @@ export function ChatMessagesJumpNoBottomDemo() {
 
     const requestId = jumpRequestIdRef.current + 1;
     jumpRequestIdRef.current = requestId;
-    scroll.beginScrollIsolation("message-jump");
+    const token = scroll.beginScrollIsolation("message-jump");
     loadGenerationRef.current += 1;
     setLoadingUpper(false);
 
@@ -155,6 +152,9 @@ export function ChatMessagesJumpNoBottomDemo() {
     } else {
       await jumpToInRangeMessage(targetId, requestId);
     }
+
+    scrollRef.current.endScrollIsolation(token);
+    controller.highlightMessage(targetId);
 
   }, [
     chatServer,
