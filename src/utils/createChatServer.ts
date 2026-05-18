@@ -191,7 +191,6 @@ export const createChatServer = ({
   const fetchMessagesAround = async (
     targetMessageId: number,
     loadedRange: ChatMessagesLoadedRange,
-    pageSizeOverride = pageSize,
   ): Promise<FetchMessagesAroundResult> => {
     await delay(fetchDelayMs);
 
@@ -213,31 +212,25 @@ export const createChatServer = ({
     }
 
     if (targetId < loadedRange.oldestId) {
-      const start = Math.max(0, Math.floor(targetId / pageSizeOverride) * pageSizeOverride);
-      const count = loadedRange.oldestId - start;
-
       return {
-        messages: createMessages({ start, size: count }),
+        messages: createMessages({
+          start: targetId,
+          size: loadedRange.oldestId - targetId,
+        }),
         direction: "upper",
-        hasUpper: start > 0,
+        hasUpper: targetId > 0,
         hasBottom: loadedRange.newestId < loadedRange.conversationLatestId,
       };
     }
 
-    const end = Math.min(
-      loadedRange.conversationLatestId + 1,
-      Math.ceil((targetId + 1) / pageSizeOverride) * pageSizeOverride,
-    );
-    const count = end - loadedRange.newestId - 1;
-
     return {
       messages: createMessages({
         start: loadedRange.newestId + 1,
-        size: count,
+        size: targetId - loadedRange.newestId,
       }),
       direction: "bottom",
       hasUpper: loadedRange.oldestId > 0,
-      hasBottom: end - 1 < loadedRange.conversationLatestId,
+      hasBottom: targetId < loadedRange.conversationLatestId,
     };
   };
 

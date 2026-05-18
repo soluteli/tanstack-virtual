@@ -7,11 +7,6 @@ import {
   type ChatMessage,
 } from "../utils/createChatServer";
 
-const waitForFrame = () =>
-  new Promise<void>((resolve) => {
-    requestAnimationFrame(() => resolve());
-  });
-
 function MessageRow({
   highlighted,
   message,
@@ -92,6 +87,52 @@ export function ChatMessagesJumpNoBottomDemo() {
     [],
   );
 
+  const jumpToInRangeMessage = React.useCallback(async (
+    targetId: number,
+    isolationToken: number,
+  ) => {
+    setJumpStatus(`Jumping to ${targetId}...`);
+
+
+    scrollRef.current.scrollToMessageKey(targetId, {
+      align: "center",
+      behavior: "smooth",
+    });
+
+    scrollRef.current.endScrollIsolation(isolationToken);
+    controller.highlightMessage(targetId);
+    setJumpStatus(`Jumped to ${targetId}`);
+  }, [controller]);
+
+  const jumpToOutOfRangeMessage = React.useCallback(async (
+    targetId: number,
+    requestId: number,
+    oldestId: number,
+    newestId: number,
+  ) => {
+    setJumpStatus(`Loading around ${targetId}...`);
+
+    const result = await chatServer.fetchMessagesAround(
+      targetId,
+      {
+        oldestId,
+        newestId,
+        conversationLatestId: chatServer.latestMessageId,
+      }
+    );
+
+    if (!isCurrentJump(requestId)) return;
+
+    if (result.direction !== "loaded" && result.messages.length > 0) {
+      const targetMessages = result.direction === 'upper' ? [...result.messages, ...controller.messages] : [...controller.messages, ...result.messages]
+      controller.replaceWindow(targetMessages, {
+        hasUpper: result.hasUpper,
+        hasBottom: false,
+      });
+    }
+
+  }, [chatServer, controller, isCurrentJump, jumpToInRangeMessage]);
+
   const jumpToMessage = React.useCallback(async (targetId: number) => {
     const oldestId = chatServer.getOldestMessageId(controller.messages);
     const newestId = chatServer.getNewestMessageId(controller.messages);
@@ -99,62 +140,31 @@ export function ChatMessagesJumpNoBottomDemo() {
 
     const requestId = jumpRequestIdRef.current + 1;
     jumpRequestIdRef.current = requestId;
-    const isolationToken = scroll.beginScrollIsolation("message-jump");
+    scroll.beginScrollIsolation("message-jump");
     loadGenerationRef.current += 1;
     setLoadingUpper(false);
 
     if (targetId < oldestId || targetId > newestId) {
-      setJumpStatus(`Loading around ${targetId}...`);
-
-      const result = await chatServer.fetchMessagesAround(
+      console.log('jumpToOutOfRangeMessage')
+      await jumpToOutOfRangeMessage(
         targetId,
-        {
-          oldestId,
-          newestId,
-          conversationLatestId: chatServer.latestMessageId,
-        },
-        chatServer.pageSize,
+        requestId,
+        oldestId,
+        newestId,
       );
-
-      if (!isCurrentJump(requestId)) return;
-
-      if (result.direction !== "loaded" && result.messages.length > 0) {
-        controller.replaceWindow(result.messages, {
-          hasUpper: result.hasUpper,
-          hasBottom: false,
-        });
-      }
-    }
-
-    setJumpStatus(`Jumping to ${targetId}...`);
-
-    await waitForFrame();
-    if (!isCurrentJump(requestId)) return;
-
-    const latestScroll = scrollRef.current;
-    const didScroll = latestScroll.scrollToMessageKey(targetId, {
-      align: "center",
-      behavior: "instant",
-    });
-
-    if (!didScroll) {
-      latestScroll.endScrollIsolation(isolationToken);
-      setJumpStatus(`Message ${targetId} is not loaded`);
       return;
+    } else {
+      console.log('jumpToInRangeMessage')
+      await jumpToInRangeMessage(targetId, requestId);
     }
 
-    await waitForFrame();
-    if (!isCurrentJump(requestId)) return;
-
-    scrollRef.current.scrollToMessageKey(targetId, {
-      align: "center",
-      behavior: "instant",
-    });
-
-    scrollRef.current.endScrollIsolation(isolationToken);
-    controller.highlightMessage(targetId);
-    setJumpStatus(`Jumped to ${targetId}`);
-  }, [chatServer, controller, isCurrentJump, scroll]);
+  }, [
+    chatServer,
+    controller.messages,
+    jumpToInRangeMessage,
+    jumpToOutOfRangeMessage,
+    scroll,
+  ]);
 
   return (
     <div>
