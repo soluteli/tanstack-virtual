@@ -22,10 +22,23 @@ export type ChatVirtualRow<TMessage> =
       messageIndex: number;
     };
 
+export interface ChatScrollAnchor {
+  messageKey: string | number;
+  offsetFromViewportTop: number;
+}
+
 export interface UseChatScrollOptions<TMessage> {
   messages: readonly TMessage[];
   getMessageKey: (message: TMessage) => string | number;
   getScrollElement: () => Element | null;
+  initialScroll?:
+    | { type: "bottom" }
+    | {
+        type: "restore-position";
+        meta: {
+          anchor: ChatScrollAnchor;
+        };
+      };
   onLoadUpper?: () => Promise<void>;
   hasUpper?: boolean;
   onLoadBottom?: () => Promise<void>;
@@ -69,12 +82,6 @@ type ChatRowModel<TMessage> =
       messageIndex: number;
     };
 
-interface UpperAnchor {
-  messageKey: MessageKey;
-  // prepend 历史消息后，让锚定的 message 维持在同一个 viewport 偏移。
-  offsetFromViewportTop: number;
-}
-
 type ScrollPurpose =
   | {
       purpose: "message-jump";
@@ -93,7 +100,7 @@ type ScrollPurpose =
       purpose: "load-upper";
       meta: {
         count: number;
-        upperAnchor: UpperAnchor | null;
+        upperAnchor: ChatScrollAnchor | null;
       };
     }
   | {
@@ -138,6 +145,7 @@ export function useChatScroll<TMessage>(
     messages,
     getMessageKey,
     getScrollElement,
+    initialScroll = { type: "bottom" },
     onLoadUpper,
     hasUpper,
     onLoadBottom,
@@ -148,12 +156,16 @@ export function useChatScroll<TMessage>(
   const initializedRef = useRef(false);
   const scheduledToBottomRafRef = useRef<number | null>(null);
 
-  const nextScrollPurposeRef = useRef<ActiveScrollPurpose | null>({
-    purpose: "stick-at-bottom",
-    meta: {
-      count: messages.length,
-    },
-  });
+  const nextScrollPurposeRef = useRef<ActiveScrollPurpose | null>(
+    initialScroll.type === "bottom"
+      ? {
+          purpose: "stick-at-bottom",
+          meta: {
+            count: messages.length,
+          },
+        }
+      : null,
+  );
 
   const onLoadUpperRef = useRef(onLoadUpper);
   onLoadUpperRef.current = onLoadUpper;
@@ -244,7 +256,7 @@ export function useChatScroll<TMessage>(
   }, [getMessageKeyValue, hasBottom, hasUpper, messages]);
 
   const getFirstVisibleMessageAnchor = useCallback(
-    (instance: Virtualizer<Element, Element>): UpperAnchor | null => {
+    (instance: Virtualizer<Element, Element>): ChatScrollAnchor | null => {
       const scrollOffset = instance.scrollOffset ?? 0;
       const virtualItems = instance.getVirtualItems();
       const firstVisibleMessage = virtualItems.find((virtualItem) => {
@@ -419,6 +431,37 @@ export function useChatScroll<TMessage>(
     [chatRows, messages.length, virtualizer],
   );
 
+  const restoreScrollAnchor = useCallback(
+    (anchor: ChatScrollAnchor) => {
+      if (scheduledToBottomRafRef.current !== null) {
+        cancelScheduledScrollToBottom();
+      }
+
+      requestAnimationFrame(() => {
+        const virtualIndex = chatRows.findIndex(
+          (row) =>
+            row.type === "message" && row.messageKey === anchor.messageKey,
+        );
+
+        if (virtualIndex !== -1) {
+          const measurement = virtualizer.measurementsCache.find(
+            (item) => item.index === virtualIndex,
+          );
+          const itemStart =
+            measurement?.start ??
+            virtualizer.getOffsetForIndex(virtualIndex)?.[0];
+
+          if (itemStart !== undefined) {
+            virtualizer.scrollToOffset(
+              itemStart - anchor.offsetFromViewportTop,
+            );
+          }
+        }
+      });
+    },
+    [chatRows, cancelScheduledScrollToBottom, virtualizer],
+  );
+
   const scheduleScrollToBottom = useCallback(
     (options?: ScrollToOptions) => {
       if (isDuringJump()) return;
@@ -451,9 +494,20 @@ export function useChatScroll<TMessage>(
     if (initializedRef.current) return;
 
     initializedRef.current = true;
-    scheduleScrollToBottom({ behavior: "instant" });
-    setStickAtBottomPurpose();
-  }, [messages.length, scheduleScrollToBottom]);
+
+    if (initialScroll.type === "restore-position") {
+      nextScrollPurposeRef.current = null;
+      restoreScrollAnchor(initialScroll.meta.anchor);
+    } else {
+      scheduleScrollToBottom({ behavior: "instant" });
+      setStickAtBottomPurpose();
+    }
+  }, [
+    initialScroll,
+    restoreScrollAnchor,
+    scheduleScrollToBottom,
+    setStickAtBottomPurpose,
+  ]);
 
   // 新消息 append 进入列表滚到底
   useLayoutEffect(() => {
@@ -477,7 +531,6 @@ export function useChatScroll<TMessage>(
       const isDataGrow =
         messages.length > nextScrollPurposeRef.current?.meta.count;
       const anchor = nextScrollPurposeRef.current?.meta.upperAnchor;
-      debugger;
       if (anchor && isDataGrow) {
         /**
          * !FIXME

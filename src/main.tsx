@@ -9,6 +9,7 @@ import { RowVirtualizerDynamic } from './examples/RowVirtualizerDynamic'
 import { ChatMessages } from './examples/ChatMessages'
 import { ChatMessagesJumpNoBottomDemo } from './examples/ChatMessagesJumpNoBottomDemo'
 import { ChatMessagesNewMessageToast } from './examples/ChatMessagesNewMessageToast'
+import { ChatMessagesRestorePosition } from './examples/ChatMessagesRestorePosition'
 
 import './index.css'
 
@@ -40,6 +41,9 @@ function App() {
             <a href="/chat">chat</a>
           </li>
           <li>
+            <a href="/chat-restore-position">chat restore position</a>
+          </li>
+          <li>
             <a href="/chat-new-message-toast">chat new message toast</a>
           </li>
           <li>
@@ -62,6 +66,8 @@ function App() {
             return <RowVirtualizerExperimental />
           case '/chat':
             return <ChatMessages />
+          case '/chat-restore-position':
+            return <ChatMessagesRestorePosition />
           case '/chat-new-message-toast':
             return <ChatMessagesNewMessageToast />
           case '/chat-jump-no-bottom':
