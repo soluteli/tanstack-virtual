@@ -131,8 +131,6 @@ export function useChatScroll<TMessage>(
 
   const stickToBottomRef = useRef(true);
   const initializedRef = useRef(false);
-  const pendingScrollToBottomRef = useRef(false);
-  const scrollToBottomGenerationRef = useRef(0);
   const scrollToBottomRafRef = useRef<number | null>(null);
   const isLoadingUpperRef = useRef(false);
   const isLoadingBottomRef = useRef(false);
@@ -162,8 +160,6 @@ export function useChatScroll<TMessage>(
   );
 
   const cancelScheduledScrollToBottom = useCallback(() => {
-    scrollToBottomGenerationRef.current += 1;
-    pendingScrollToBottomRef.current = false;
 
     if (scrollToBottomRafRef.current !== null) {
       cancelAnimationFrame(scrollToBottomRafRef.current);
@@ -379,15 +375,10 @@ export function useChatScroll<TMessage>(
   );
 
   const scheduleScrollToBottom = useCallback((options?: ScrollToOptions) => {
-    if (isScrollIsolated()) return;
-    if (pendingScrollToBottomRef.current) return;
-    pendingScrollToBottomRef.current = true;
-    const scheduleGeneration = scrollToBottomGenerationRef.current;
+    if (isScrollIsolated() || scrollToBottomRafRef.current !== null) return;
 
     scrollToBottomRafRef.current = requestAnimationFrame(() => {
       scrollToBottomRafRef.current = null;
-      pendingScrollToBottomRef.current = false;
-      if (scheduleGeneration !== scrollToBottomGenerationRef.current) return;
       if (isScrollIsolated()) return;
       scrollToLoadedBottom(options);
     });
