@@ -14,29 +14,36 @@ function App() {
   return (
     <div>
       <p>
-        These components are using <strong>dynamic</strong> sizes. This means
-        that each element's exact dimensions are unknown when rendered. An
-        estimated dimension is used as the initial measurement, then this
-        measurement is readjusted on the fly as each element is rendered.
+        These chat demos use TanStack Virtual with <strong>dynamic</strong>{' '}
+        message sizes. Each row starts with an estimated height, then the
+        virtualizer remeasures it after render so image, text, and history
+        loading changes keep the scroll position stable.
       </p>
       <nav>
         <ul>
           <li>
-            <a href="/chat">chat with upper loading</a>
+            <a href="/chat">chat: load older messages from the top</a>
           </li>
           <li>
-            <a href="/chat-jump">chat jump</a>
+            <a href="/chat-jump-no-bottom">
+              chat: jump to a loaded or unloaded message
+            </a>
           </li>
           <li>
-            <a href="/chat-new-message-toast">chat new message notification</a>
+            <a href="/chat-new-message-toast">
+              chat: show a new-message toast when away from bottom
+            </a>
           </li>
           <li>
-            <a href="/chat-restore-position">chat restore position when re enter</a>
+            <a href="/chat-restore-position">
+              chat: restore scroll position after re-entry
+            </a>
           </li>
           <li>
-            <a href="/chat-new-message-divider">chat new message divider</a>
+            <a href="/chat-new-message-divider">
+              chat: keep a divider at the first unread message
+            </a>
           </li>
-          
         </ul>
       </nav>
       {(() => {
