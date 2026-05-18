@@ -11,6 +11,8 @@ interface ChatUnreadSnapshot {
   messages: ChatMessage[];
   hasUpper: boolean;
   hasBottom: boolean;
+  totalMessagesCount: number;
+  latestMessageId: number | null;
   initialFirstUnreadMessageKey: MessageKey | null;
 }
 
@@ -40,6 +42,8 @@ export function ChatMessagesNewMessageDivider() {
           <div style={{ fontSize: 12, color: "#666", marginTop: 8 }}>
             Saved messages: {snapshot.messages[0]?.id ?? "-"}-
             {snapshot.messages[snapshot.messages.length - 1]?.id ?? "-"} |
+            total: {snapshot.totalMessagesCount} |
+            latest: {snapshot.latestMessageId ?? "-"} |
             first unread: {snapshot.initialFirstUnreadMessageKey ?? "-"}
           </div>
         ) : null}
@@ -66,16 +70,22 @@ function ChatMessagesNewMessageDividerSession({
   onLeave: (snapshot: ChatUnreadSnapshot) => void;
 }) {
   const parentRef = React.useRef<HTMLDivElement>(null);
-  const chatServer = React.useMemo(() => createChatServer(), []);
+  const chatServer = React.useMemo(
+    () =>
+      createChatServer({
+        totalMessagesCount: initialSnapshot?.totalMessagesCount,
+        rangeMessages: initialSnapshot?.messages,
+        latestMessageId: initialSnapshot?.latestMessageId ?? undefined,
+      }),
+    [initialSnapshot],
+  );
   const getMessageKey = React.useCallback(
     (message: ChatMessage): MessageKey => message.id,
     [],
   );
   const initialMessages = React.useMemo(
-    () =>
-      initialSnapshot?.messages ??
-      chatServer.getInitialMessages("latest", chatServer.pageSize),
-    [chatServer, initialSnapshot],
+    () => chatServer.rangeMessages,
+    [chatServer],
   );
   const [initialFirstUnreadMessageKey, setFirstUnreadMessageKey] =
     React.useState<MessageKey | null>(
@@ -86,19 +96,20 @@ function ChatMessagesNewMessageDividerSession({
     initialMessages,
     initialHasUpper:
       initialSnapshot?.hasUpper ?? chatServer.hasUpperMessages(initialMessages),
-    initialHasBottom: initialSnapshot?.hasBottom ?? false,
-    initialLatestMessageId: chatServer.getNewestMessageId(initialMessages),
+    initialHasBottom:
+      initialSnapshot?.hasBottom ??
+      chatServer.hasBottomMessages(initialMessages, chatServer.latestMessageId),
+    initialLatestMessageId:
+      initialSnapshot?.latestMessageId ?? chatServer.latestMessageId,
   });
 
-  console.log("🚀 ~ ChatMessagesNewMessageDividerSession ~ initialFirstUnreadMessageKey:", initialFirstUnreadMessageKey)
   const firstUnreadIndex = React.useMemo(
-    () => {
-      return initialFirstUnreadMessageKey === null
+    () =>
+      initialFirstUnreadMessageKey === null
         ? -1
         : controller.messages.findIndex(
             (message) => getMessageKey(message) === initialFirstUnreadMessageKey,
-          );
-    },
+          ),
     [controller.messages, initialFirstUnreadMessageKey, getMessageKey],
   );
   const newMessageCount =
@@ -129,11 +140,9 @@ function ChatMessagesNewMessageDividerSession({
       chatServer.latestMessageId,
       chatServer.pageSize,
     );
-    const nextNewestId =
-      chatServer.getNewestMessageId(nextMessages) ?? startingNewestId;
 
     controller.appendMessages(nextMessages, {
-      latestMessageId: nextNewestId,
+      latestMessageId: chatServer.latestMessageId,
       guard: (currentMessages) =>
         chatServer.getNewestMessageId(currentMessages) === startingNewestId,
     });
@@ -141,8 +150,6 @@ function ChatMessagesNewMessageDividerSession({
 
   const onLatestMessageRead = React.useCallback(() => {
     setFirstUnreadMessageKey(null);
-    
-    console.log("🚀 ~ ChatMessagesNewMessageDividerSession ~ onLatestMessageRead:")
   }, []);
 
   const scroll = useChatScroll({
@@ -175,6 +182,7 @@ function ChatMessagesNewMessageDividerSession({
 
       controller.appendRealtimeMessages(nextMessages, {
         appendToWindow: isLoadedAtConversationLatest,
+        hasBottom: !isLoadedAtConversationLatest,
         latestMessageId: chatServer.latestMessageId,
       });
     },
@@ -187,18 +195,23 @@ function ChatMessagesNewMessageDividerSession({
     ],
   );
 
-    console.log("🚀 ~ ChatMessagesNewMessageDividerSession ~ initialFirstUnreadMessageKey:", initialFirstUnreadMessageKey)
   const leaveChat = React.useCallback(() => {
-      console.log("🚀 ~ ChatMessagesNewMessageDividerSession ~ controller.messages:", controller.messages)
     onLeave({
       messages: controller.messages,
       hasUpper: controller.hasUpper,
       hasBottom: controller.hasBottom,
+      totalMessagesCount: chatServer.totalMessagesCount,
+      latestMessageId:
+        typeof controller.latestMessageId === "number"
+          ? controller.latestMessageId
+          : chatServer.latestMessageId,
       initialFirstUnreadMessageKey,
     });
   }, [
+    chatServer,
     controller.hasBottom,
     controller.hasUpper,
+    controller.latestMessageId,
     controller.messages,
     initialFirstUnreadMessageKey,
     onLeave,

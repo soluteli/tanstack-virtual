@@ -1,8 +1,6 @@
 import { faker } from "@faker-js/faker";
 import { randomNumber } from "./mockdata";
 
-export type ChatMessagesDemoInitialMode = "latest" | "middle";
-
 export interface ChatMessage {
   uid: string;
   id: number;
@@ -13,6 +11,9 @@ export interface ChatMessage {
 export interface CreateChatServerOptions {
   pageSize?: number;
   totalMessagesCount?: number;
+  rangeStart?: number;
+  rangeEnd?: number;
+  rangeMessages?: ChatMessage[];
   latestMessageId?: number;
   fetchDelayMs?: number;
 }
@@ -38,7 +39,6 @@ interface CreateMessagesParams {
 
 const DEFAULT_PAGE_SIZE = 20;
 const DEFAULT_TOTAL_MESSAGES_COUNT = 310;
-const DEFAULT_LATEST_MESSAGE_ID = 309;
 const DEFAULT_FETCH_DELAY_MS = 2000;
 
 const delay = (duration: number) =>
@@ -78,14 +78,29 @@ const createMessages = ({
 export const createChatServer = ({
   pageSize = DEFAULT_PAGE_SIZE,
   totalMessagesCount = DEFAULT_TOTAL_MESSAGES_COUNT,
-  latestMessageId = DEFAULT_LATEST_MESSAGE_ID,
+  rangeStart,
+  rangeEnd,
+  rangeMessages,
+  latestMessageId,
   fetchDelayMs = DEFAULT_FETCH_DELAY_MS,
 }: CreateChatServerOptions = {}) => {
-  if (latestMessageId !== totalMessagesCount - 1) {
-    throw new Error(
-      "createChatServer requires latestMessageId to equal totalMessagesCount - 1",
-    );
-  }
+  let currentLatestId = latestMessageId ?? Math.max(totalMessagesCount - 1, -1);
+
+  const safeRangeEnd = Math.max(
+    0,
+    Math.min(rangeEnd ?? totalMessagesCount, totalMessagesCount),
+  );
+  const safeRangeStart = Math.max(
+    0,
+    Math.min(rangeStart ?? Math.max(safeRangeEnd - pageSize, 0), safeRangeEnd),
+  );
+  const currentRangeMessages =
+    rangeMessages !== undefined
+      ? Array.from(rangeMessages)
+      : createMessages({
+          start: safeRangeStart,
+          size: safeRangeEnd - safeRangeStart,
+        });
 
   const getOldestMessageId = (messages: readonly ChatMessage[]) =>
     messages[0]?.id;
@@ -98,64 +113,20 @@ export const createChatServer = ({
 
   const hasBottomMessages = (
     messages: readonly ChatMessage[],
-    conversationLatestId = latestMessageId,
+    conversationLatestId = currentLatestId,
   ) =>
     (getNewestMessageId(messages) ?? conversationLatestId) <
     conversationLatestId;
 
-  function getInitialMessages(
-    startIndex: number,
-    pageSizeOverride?: number,
-  ): ChatMessage[];
-  function getInitialMessages(
-    mode: ChatMessagesDemoInitialMode,
-    pageSizeOverride?: number,
-  ): ChatMessage[];
-  function getInitialMessages(
-    startOrMode: number | ChatMessagesDemoInitialMode,
-    pageSizeOverride = pageSize,
-  ) {
-    if (typeof startOrMode === "number") {
-      const start = Math.max(0, Math.min(startOrMode, latestMessageId + 1));
-      const size = Math.max(
-        0,
-        Math.min(pageSizeOverride, latestMessageId - start + 1),
-      );
-
-      return createMessages({ start, size });
-    }
-
-    if (startOrMode === "middle") {
-      const start = Math.max(0, latestMessageId - pageSizeOverride * 3);
-      const size = Math.max(
-        0,
-        Math.min(pageSizeOverride, latestMessageId - start + 1),
-      );
-
-      return createMessages({ start, size });
-    }
-
-    return createMessages({
-      end: latestMessageId + 1,
-      size: pageSizeOverride,
-    });
-  }
-
-  const getLatestMessages = (pageSizeOverride = pageSize) =>
-    createMessages({
-      end: latestMessageId + 1,
-      size: pageSizeOverride,
-    });
-
   const getRealtimeMessages = (count: number) => {
     const safeCount = Math.max(0, count);
     const nextMessages = createMessages({
-      start: latestMessageId + 1,
+      start: currentLatestId + 1,
       size: safeCount,
     });
 
     totalMessagesCount += safeCount;
-    latestMessageId += safeCount;
+    currentLatestId += safeCount;
 
     return nextMessages;
   };
@@ -174,7 +145,7 @@ export const createChatServer = ({
 
   const fetchNextMessages = async (
     newestLoadedId: number,
-    conversationLatestId = latestMessageId,
+    conversationLatestId = currentLatestId,
     pageSizeOverride = pageSize,
   ) => {
     await delay(fetchDelayMs);
@@ -242,10 +213,11 @@ export const createChatServer = ({
       return totalMessagesCount;
     },
     get latestMessageId() {
-      return latestMessageId;
+      return currentLatestId;
     },
-    getInitialMessages,
-    getLatestMessages,
+    get rangeMessages() {
+      return currentRangeMessages;
+    },
     getRealtimeMessages,
     fetchPreviousMessages,
     fetchNextMessages,
