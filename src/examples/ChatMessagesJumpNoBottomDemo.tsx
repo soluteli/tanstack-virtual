@@ -2,10 +2,7 @@ import React from "react";
 import { useChatMessagesController } from "../hooks/useChatMessagesController";
 import { useChatScroll } from "../hooks/useChatScroll";
 import { getDebugInfo } from "../utils/devHelpers";
-import {
-  createChatServer,
-  type ChatMessage,
-} from "../utils/createChatServer";
+import { createChatServer, type ChatMessage } from "../utils/createChatServer";
 
 function MessageRow({
   highlighted,
@@ -86,81 +83,89 @@ export function ChatMessagesJumpNoBottomDemo() {
     [],
   );
 
-  const jumpToInRangeMessage = React.useCallback(async (
-    targetId: number,
-  ) => {
-    setJumpStatus(`Jumping to ${targetId}...`);
+  const jumpToInRangeMessage = React.useCallback(
+    async (targetId: number) => {
+      setJumpStatus(`Jumping to ${targetId}...`);
+      const token = scroll.beginScrollIsolation("message-jump");
+      scrollRef.current.scrollToMessageKey(targetId, {
+        align: "center",
+        behavior: "smooth",
+      });
+      scrollRef.current.endScrollIsolation(token);
+      controller.highlightMessage(targetId);
 
+      setJumpStatus(`Jumped to ${targetId}`);
+    },
+    [controller],
+  );
 
-    scrollRef.current.scrollToMessageKey(targetId, {
-      align: "center",
-      behavior: "smooth",
-    });
+  const jumpToOutOfRangeMessage = React.useCallback(
+    async (
+      targetId: number,
+      requestId: number,
+      oldestId: number,
+      newestId: number,
+    ) => {
+      setJumpStatus(`Loading around ${targetId}...`);
+      const token = scroll.beginScrollIsolation("message-jump");
 
-    setJumpStatus(`Jumped to ${targetId}`);
-  }, [controller]);
-
-  const jumpToOutOfRangeMessage = React.useCallback(async (
-    targetId: number,
-    requestId: number,
-    oldestId: number,
-    newestId: number,
-  ) => {
-    setJumpStatus(`Loading around ${targetId}...`);
-
-    const result = await chatServer.fetchMessagesAround(
-      targetId,
-      {
+      const result = await chatServer.fetchMessagesAround(targetId, {
         oldestId,
         newestId,
         conversationLatestId: chatServer.latestMessageId,
-      }
-    );
-
-    if (!isCurrentJump(requestId)) return;
-
-    if (result.direction !== "loaded" && result.messages.length > 0) {
-      const targetMessages = result.direction === 'upper' ? [...result.messages, ...controller.messages] : [...controller.messages, ...result.messages]
-      controller.replaceWindow(targetMessages, {
-        hasUpper: result.hasUpper,
-        hasBottom: false,
       });
-    }
 
-  }, [chatServer, controller, isCurrentJump, jumpToInRangeMessage]);
+      if (!isCurrentJump(requestId)) return;
 
-  const jumpToMessage = React.useCallback(async (targetId: number) => {
-    const oldestId = chatServer.getOldestMessageId(controller.messages);
-    const newestId = chatServer.getNewestMessageId(controller.messages);
-    if (oldestId === undefined || newestId === undefined) return;
+      if (result.direction !== "loaded" && result.messages.length > 0) {
+        const targetMessages =
+          result.direction === "upper"
+            ? [...result.messages, ...controller.messages]
+            : [...controller.messages, ...result.messages];
 
-    const requestId = requestIdRef.current + 1;
-    requestIdRef.current = requestId;
-    const token = scroll.beginScrollIsolation("message-jump");
-    setLoadingUpper(false);
+        controller.replaceWindow(targetMessages, {
+          hasUpper: result.hasUpper,
+          hasBottom: false,
+        });
+        setTimeout(() => {
+          scrollRef.current.scrollToMessageKey(targetId, {
+            align: "center",
+            behavior: "smooth",
+          });
+          console.log('jumpToOutOfRangeMessage end')
+          scrollRef.current.endScrollIsolation(token);
+          controller.highlightMessage(targetId);
+        });
+      }
+    },
+    [chatServer, controller, isCurrentJump, jumpToInRangeMessage],
+  );
 
-    if (targetId < oldestId || targetId > newestId) {
-      await jumpToOutOfRangeMessage(
-        targetId,
-        requestId,
-        oldestId,
-        newestId,
-      );
-      return;
-    } else {
-      await jumpToInRangeMessage(targetId);
-    }
+  const jumpToMessage = React.useCallback(
+    async (targetId: number) => {
+      const oldestId = chatServer.getOldestMessageId(controller.messages);
+      const newestId = chatServer.getNewestMessageId(controller.messages);
+      if (oldestId === undefined || newestId === undefined) return;
 
-    scrollRef.current.endScrollIsolation(token);
-    controller.highlightMessage(targetId);
+      const requestId = requestIdRef.current + 1;
+      requestIdRef.current = requestId;
+      setLoadingUpper(false);
 
-  }, [
-    chatServer,
-    controller.messages,
-    jumpToInRangeMessage,
-    jumpToOutOfRangeMessage,
-    scroll,
-  ]);
+      if (targetId < oldestId || targetId > newestId) {
+        await jumpToOutOfRangeMessage(targetId, requestId, oldestId, newestId);
+      } else {
+        await jumpToInRangeMessage(targetId);
+      }
+
+    },
+    [
+      chatServer,
+      controller.messages,
+      jumpToInRangeMessage,
+      jumpToOutOfRangeMessage,
+      scroll,
+    ],
+  );
 
   return (
     <div>
