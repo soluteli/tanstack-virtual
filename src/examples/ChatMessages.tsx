@@ -8,6 +8,11 @@ import {
 } from "../utils/createChatServer";
 import { MessageDivider } from "../components/MessageDivider";
 
+const INITIAL_TOTAL_MESSAGES_COUNT = 310;
+const INITIAL_PAGE_SIZE = 20;
+const INITIAL_RANGE_START =
+  INITIAL_TOTAL_MESSAGES_COUNT - 1 - INITIAL_PAGE_SIZE * 3;
+
 function MessageRow({ message }: { message: ChatMessage }) {
   return (
     <div style={{ padding: "10px 0" }}>
@@ -22,16 +27,25 @@ function MessageRow({ message }: { message: ChatMessage }) {
 
 export function ChatMessages() {
   const parentRef = React.useRef<HTMLDivElement>(null);
-  const chatServer = React.useMemo(() => createChatServer(), []);
+  const chatServer = React.useMemo(
+    () =>
+      createChatServer({
+        pageSize: INITIAL_PAGE_SIZE,
+        totalMessagesCount: INITIAL_TOTAL_MESSAGES_COUNT,
+        rangeStart: INITIAL_RANGE_START,
+        rangeEnd: INITIAL_RANGE_START + INITIAL_PAGE_SIZE,
+      }),
+    [],
+  );
   const initialMessages = React.useMemo(
-    () => chatServer.getInitialMessages("middle", chatServer.pageSize),
+    () => chatServer.rangeMessages,
     [chatServer],
   );
 
   const controller = useChatMessagesController<ChatMessage>({
     initialMessages,
     initialHasUpper: chatServer.hasUpperMessages(initialMessages),
-    initialLatestMessageId: chatServer.getNewestMessageId(initialMessages),
+    initialLatestMessageId: chatServer.latestMessageId,
   });
 
   const loadUpper = React.useCallback(async () => {

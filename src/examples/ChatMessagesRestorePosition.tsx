@@ -11,6 +11,8 @@ interface ChatRestoreSnapshot {
   messages: ChatMessage[];
   hasUpper: boolean;
   hasBottom: boolean;
+  totalMessagesCount: number;
+  latestMessageId: number | null;
   anchor: ChatScrollAnchor | null;
 }
 
@@ -40,6 +42,8 @@ export function ChatMessagesRestorePosition() {
           <div style={{ fontSize: 12, color: "#666", marginTop: 8 }}>
             Saved messages: {snapshot.messages[0]?.id ?? "-"}-
             {snapshot.messages[snapshot.messages.length - 1]?.id ?? "-"} |
+            total: {snapshot.totalMessagesCount} |
+            latest: {snapshot.latestMessageId ?? "-"} |
             restore key: {snapshot.anchor?.messageKey ?? "-"}
           </div>
         ) : null}
@@ -66,16 +70,22 @@ function ChatMessagesRestorePositionSession({
   onLeave: (snapshot: ChatRestoreSnapshot) => void;
 }) {
   const parentRef = React.useRef<HTMLDivElement>(null);
-  const chatServer = React.useMemo(() => createChatServer(), []);
+  const chatServer = React.useMemo(
+    () =>
+      createChatServer({
+        totalMessagesCount: initialSnapshot?.totalMessagesCount,
+        rangeMessages: initialSnapshot?.messages,
+        latestMessageId: initialSnapshot?.latestMessageId ?? undefined,
+      }),
+    [initialSnapshot],
+  );
   const getMessageKey = React.useCallback(
     (message: ChatMessage): MessageKey => message.id,
     [],
   );
   const initialMessages = React.useMemo(
-    () =>
-      initialSnapshot?.messages ??
-      chatServer.getInitialMessages("latest", chatServer.pageSize),
-    [chatServer, initialSnapshot],
+    () => chatServer.rangeMessages,
+    [chatServer],
   );
 
   const controller = useChatMessagesController<ChatMessage>({
@@ -85,7 +95,8 @@ function ChatMessagesRestorePositionSession({
     initialHasBottom:
       initialSnapshot?.hasBottom ??
       chatServer.hasBottomMessages(initialMessages, chatServer.latestMessageId),
-    initialLatestMessageId: chatServer.getNewestMessageId(initialMessages),
+    initialLatestMessageId:
+      initialSnapshot?.latestMessageId ?? chatServer.latestMessageId,
   });
 
   const loadUpper = React.useCallback(async () => {
@@ -142,11 +153,18 @@ function ChatMessagesRestorePositionSession({
       messages: controller.messages,
       hasUpper: controller.hasUpper,
       hasBottom: controller.hasBottom,
+      totalMessagesCount: chatServer.totalMessagesCount,
+      latestMessageId:
+        typeof controller.latestMessageId === "number"
+          ? controller.latestMessageId
+          : chatServer.latestMessageId,
       anchor: getFirstVisibleMessageAnchor(),
     });
   }, [
+    chatServer,
     controller.hasBottom,
     controller.hasUpper,
+    controller.latestMessageId,
     controller.messages,
     getFirstVisibleMessageAnchor,
     onLeave,

@@ -32,14 +32,14 @@ export function ChatMessagesJumpNoBottomDemo() {
   const requestIdRef = React.useRef(0);
 
   const initialMessages = React.useMemo(
-    () => chatServer.getInitialMessages("latest", chatServer.pageSize),
+    () => chatServer.rangeMessages,
     [chatServer],
   );
   const controller = useChatMessagesController<ChatMessage>({
     initialMessages,
     initialHasUpper: chatServer.hasUpperMessages(initialMessages),
     initialHasBottom: false,
-    initialLatestMessageId: chatServer.getNewestMessageId(initialMessages),
+    initialLatestMessageId: chatServer.latestMessageId,
   });
 
   const [loadingUpper, setLoadingUpper] = React.useState(false);

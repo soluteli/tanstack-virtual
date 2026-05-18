@@ -21,7 +21,7 @@ export function ChatMessagesNewMessageToast() {
   const parentRef = React.useRef<HTMLDivElement>(null);
   const chatServer = React.useMemo(() => createChatServer(), []);
   const initialMessages = React.useMemo(
-    () => chatServer.getInitialMessages("latest", chatServer.pageSize),
+    () => chatServer.rangeMessages,
     [chatServer],
   );
   const controller = useChatMessagesController<ChatMessage>({
@@ -31,7 +31,7 @@ export function ChatMessagesNewMessageToast() {
       initialMessages,
       chatServer.latestMessageId,
     ),
-    initialLatestMessageId: chatServer.getNewestMessageId(initialMessages),
+    initialLatestMessageId: chatServer.latestMessageId,
   });
 
   const loadUpper = React.useCallback(async () => {

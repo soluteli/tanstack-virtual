@@ -1,11 +1,6 @@
 import * as React from 'react'
 import { createRoot } from 'react-dom/client'
 
-
-import { ColumnVirtualizerDynamic } from './examples/ColumnVirtualizerDynamic'
-import { GridVirtualizerDynamic } from './examples/GridVirtualizerDynamic'
-import { generateColumns, generateData, RowVirtualizerExperimental } from './examples/RowVirtualizerExperimental'
-import { RowVirtualizerDynamic } from './examples/RowVirtualizerDynamic'
 import { ChatMessages } from './examples/ChatMessages'
 import { ChatMessagesJumpNoBottomDemo } from './examples/ChatMessagesJumpNoBottomDemo'
 import { ChatMessagesNewMessageDivider } from './examples/ChatMessagesNewMessageDivider'
@@ -27,20 +22,21 @@ function App() {
       <nav>
         <ul>
           <li>
-            <a href="/chat">chat</a>
+            <a href="/chat">chat with upper loading</a>
           </li>
           <li>
-            <a href="/chat-restore-position">chat restore position</a>
+            <a href="/chat-jump">chat jump</a>
           </li>
           <li>
-            <a href="/chat-new-message-toast">chat new message toast</a>
+            <a href="/chat-new-message-toast">chat new message notification</a>
+          </li>
+          <li>
+            <a href="/chat-restore-position">chat restore position when re enter</a>
           </li>
           <li>
             <a href="/chat-new-message-divider">chat new message divider</a>
           </li>
-          <li>
-            <a href="/chat-jump-no-bottom">chat jump no bottom</a>
-          </li>
+          
         </ul>
       </nav>
       {(() => {
