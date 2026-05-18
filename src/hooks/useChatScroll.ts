@@ -129,9 +129,10 @@ export function useChatScroll<TMessage>(
     onLatestMessageRead
   } = options;
 
-  const stickToBottomRef = useRef(true);
   const initializedRef = useRef(false);
-  const scrollToBottomRafRef = useRef<number | null>(null);
+  const scheduledToBottomRafRef = useRef<number | null>(null);
+  
+  const stickToBottomRef = useRef(true);
   const isLoadingUpperRef = useRef(false);
   const isLoadingBottomRef = useRef(false);
   const isolationTokenRef = useRef(0);
@@ -161,9 +162,9 @@ export function useChatScroll<TMessage>(
 
   const cancelScheduledScrollToBottom = useCallback(() => {
 
-    if (scrollToBottomRafRef.current !== null) {
-      cancelAnimationFrame(scrollToBottomRafRef.current);
-      scrollToBottomRafRef.current = null;
+    if (scheduledToBottomRafRef.current !== null) {
+      cancelAnimationFrame(scheduledToBottomRafRef.current);
+      scheduledToBottomRafRef.current = null;
     }
   }, []);
 
@@ -375,10 +376,10 @@ export function useChatScroll<TMessage>(
   );
 
   const scheduleScrollToBottom = useCallback((options?: ScrollToOptions) => {
-    if (isScrollIsolated() || scrollToBottomRafRef.current !== null) return;
+    if (isScrollIsolated() || scheduledToBottomRafRef.current !== null) return;
 
-    scrollToBottomRafRef.current = requestAnimationFrame(() => {
-      scrollToBottomRafRef.current = null;
+    scheduledToBottomRafRef.current = requestAnimationFrame(() => {
+      scheduledToBottomRafRef.current = null;
       if (isScrollIsolated()) return;
       scrollToLoadedBottom(options);
     });
