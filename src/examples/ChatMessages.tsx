@@ -31,6 +31,7 @@ export function ChatMessages() {
   const controller = useChatMessagesController<ChatMessage>({
     initialMessages,
     initialHasUpper: chatServer.hasUpperMessages(initialMessages),
+    initialLatestMessageId: chatServer.getNewestMessageId(initialMessages),
   });
 
   const loadUpper = React.useCallback(async () => {

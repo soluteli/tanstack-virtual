@@ -5,6 +5,15 @@ import { getDebugInfo } from "../utils/devHelpers";
 import { createChatServer, type ChatMessage } from "../utils/createChatServer";
 import { MessageDivider } from "../components/MessageDivider";
 
+type MessageKey = string | number;
+
+interface ChatUnreadSnapshot {
+  messages: ChatMessage[];
+  hasUpper: boolean;
+  hasBottom: boolean;
+  initialFirstUnreadMessageKey: MessageKey | null;
+}
+
 function MessageRow({ message }: { message: ChatMessage }) {
   return (
     <div style={{ padding: "10px 0" }}>
@@ -17,22 +26,83 @@ function MessageRow({ message }: { message: ChatMessage }) {
   );
 }
 
-export function ChatMessagesNewMessageToast() {
+export function ChatMessagesNewMessageDivider() {
+  const [entered, setEntered] = React.useState(true);
+  const snapshotRef = React.useRef<ChatUnreadSnapshot | null>(null);
+
+  if (!entered) {
+    const snapshot = snapshotRef.current;
+
+    return (
+      <div>
+        <button onClick={() => setEntered(true)}>Enter chat</button>
+        {snapshot ? (
+          <div style={{ fontSize: 12, color: "#666", marginTop: 8 }}>
+            Saved messages: {snapshot.messages[0]?.id ?? "-"}-
+            {snapshot.messages[snapshot.messages.length - 1]?.id ?? "-"} |
+            first unread: {snapshot.initialFirstUnreadMessageKey ?? "-"}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <ChatMessagesNewMessageDividerSession
+      initialSnapshot={snapshotRef.current}
+      onLeave={(snapshot) => {
+        snapshotRef.current = snapshot;
+        setEntered(false);
+      }}
+    />
+  );
+}
+
+function ChatMessagesNewMessageDividerSession({
+  initialSnapshot,
+  onLeave,
+}: {
+  initialSnapshot: ChatUnreadSnapshot | null;
+  onLeave: (snapshot: ChatUnreadSnapshot) => void;
+}) {
   const parentRef = React.useRef<HTMLDivElement>(null);
   const chatServer = React.useMemo(() => createChatServer(), []);
-  const initialMessages = React.useMemo(
-    () => chatServer.getInitialMessages("latest", chatServer.pageSize),
-    [chatServer],
+  const getMessageKey = React.useCallback(
+    (message: ChatMessage): MessageKey => message.id,
+    [],
   );
+  const initialMessages = React.useMemo(
+    () =>
+      initialSnapshot?.messages ??
+      chatServer.getInitialMessages("latest", chatServer.pageSize),
+    [chatServer, initialSnapshot],
+  );
+  const [initialFirstUnreadMessageKey, setFirstUnreadMessageKey] =
+    React.useState<MessageKey | null>(
+      initialSnapshot?.initialFirstUnreadMessageKey ?? null,
+    );
+
   const controller = useChatMessagesController<ChatMessage>({
     initialMessages,
-    initialHasUpper: chatServer.hasUpperMessages(initialMessages),
-    initialHasBottom: chatServer.hasBottomMessages(
-      initialMessages,
-      chatServer.latestMessageId,
-    ),
+    initialHasUpper:
+      initialSnapshot?.hasUpper ?? chatServer.hasUpperMessages(initialMessages),
+    initialHasBottom: initialSnapshot?.hasBottom ?? false,
     initialLatestMessageId: chatServer.getNewestMessageId(initialMessages),
   });
+
+  console.log("🚀 ~ ChatMessagesNewMessageDividerSession ~ initialFirstUnreadMessageKey:", initialFirstUnreadMessageKey)
+  const firstUnreadIndex = React.useMemo(
+    () => {
+      return initialFirstUnreadMessageKey === null
+        ? -1
+        : controller.messages.findIndex(
+            (message) => getMessageKey(message) === initialFirstUnreadMessageKey,
+          );
+    },
+    [controller.messages, initialFirstUnreadMessageKey, getMessageKey],
+  );
+  const newMessageCount =
+    firstUnreadIndex === -1 ? 0 : controller.messages.length - firstUnreadIndex;
 
   const loadUpper = React.useCallback(async () => {
     const startingOldestId = chatServer.getOldestMessageId(controller.messages);
@@ -69,14 +139,17 @@ export function ChatMessagesNewMessageToast() {
     });
   }, [chatServer, controller.appendMessages, controller.messages]);
 
-  const onLatestMessageRead = React.useCallback(async () => {
-    controller.clearNewMessageCount();
-  }, [controller.clearNewMessageCount]);
+  const onLatestMessageRead = React.useCallback(() => {
+    setFirstUnreadMessageKey(null);
+    
+    console.log("🚀 ~ ChatMessagesNewMessageDividerSession ~ onLatestMessageRead:")
+  }, []);
 
   const scroll = useChatScroll({
     getScrollElement: () => parentRef.current,
     messages: controller.messages,
-    getMessageKey: (message) => message.id,
+    getMessageKey,
+    initialFirstUnreadMessageKey: initialFirstUnreadMessageKey,
     onLoadUpper: loadUpper,
     hasUpper: controller.hasUpper,
     onLoadBottom: loadBottom,
@@ -84,25 +157,57 @@ export function ChatMessagesNewMessageToast() {
     onLatestMessageRead,
   });
 
-  const pushMessages = (count: number) => {
-    const previousLatestId =
-      controller.latestMessageId ?? chatServer.latestMessageId;
-    const isLoadedAtConversationLatest =
-      chatServer.getNewestMessageId(controller.messages) === previousLatestId;
-    const nextMessages = chatServer.getRealtimeMessages(count);
+  const pushMessages = React.useCallback(
+    (count: number) => {
+      const previousLatestId =
+        controller.latestMessageId ?? chatServer.latestMessageId;
+      const isLoadedAtConversationLatest =
+        chatServer.getNewestMessageId(controller.messages) === previousLatestId;
+      const nextMessages = chatServer.getRealtimeMessages(count);
+      const shouldMarkUnread = !isAtBottom(scroll.virtualizer);
 
-    const isNew = !isAtBottom(scroll.virtualizer);
-    console.log("🚀 ~ pushMessages ~ isNew:", isNew);
+      if (shouldMarkUnread && initialFirstUnreadMessageKey === null) {
+        const firstUnreadMessage = nextMessages[0];
+        if (firstUnreadMessage) {
+          setFirstUnreadMessageKey(getMessageKey(firstUnreadMessage));
+        }
+      }
 
-    controller.appendRealtimeMessages(nextMessages, {
-      appendToWindow: isLoadedAtConversationLatest,
-      latestMessageId: chatServer.latestMessageId,
-      countAsNew: isNew,
+      controller.appendRealtimeMessages(nextMessages, {
+        appendToWindow: isLoadedAtConversationLatest,
+        latestMessageId: chatServer.latestMessageId,
+      });
+    },
+    [
+      chatServer,
+      controller,
+      initialFirstUnreadMessageKey,
+      getMessageKey,
+      scroll.virtualizer,
+    ],
+  );
+
+    console.log("🚀 ~ ChatMessagesNewMessageDividerSession ~ initialFirstUnreadMessageKey:", initialFirstUnreadMessageKey)
+  const leaveChat = React.useCallback(() => {
+      console.log("🚀 ~ ChatMessagesNewMessageDividerSession ~ controller.messages:", controller.messages)
+    onLeave({
+      messages: controller.messages,
+      hasUpper: controller.hasUpper,
+      hasBottom: controller.hasBottom,
+      initialFirstUnreadMessageKey,
     });
-  };
+  }, [
+    controller.hasBottom,
+    controller.hasUpper,
+    controller.messages,
+    initialFirstUnreadMessageKey,
+    onLeave,
+  ]);
 
   return (
     <div style={{ position: "relative" }}>
+      <button onClick={leaveChat}>Leave chat</button>
+      <span style={{ padding: "0 4px" }} />
       <button onClick={() => pushMessages(1)}>push 1</button>
       <span style={{ padding: "0 4px" }} />
       <button onClick={() => pushMessages(5)}>push 5</button>
@@ -118,6 +223,8 @@ export function ChatMessagesNewMessageToast() {
           controller.hasUpper,
           controller.hasBottom,
         )}{" "}
+        | First unread: {initialFirstUnreadMessageKey ?? "-"} | New:{" "}
+        {newMessageCount}
       </div>
       <div style={{ position: "relative", height: 400, width: "80%" }}>
         <div
@@ -176,18 +283,17 @@ export function ChatMessagesNewMessageToast() {
                   );
                 }
 
-                if (row.type === "new-divider") {
-                  return (
-                    <div
-                      key={virtualRow.key}
-                      data-index={virtualRow.index}
-                      ref={scroll.virtualizer.measureElement}
-                    >
-                      <MessageDivider />
-                    </div>
-                  );
-                }
-
+              if (row.type === "new-divider") {
+                return (
+                  <div
+                    key={virtualRow.key}
+                    data-index={virtualRow.index}
+                    ref={scroll.virtualizer.measureElement}
+                  >
+                    <MessageDivider />
+                  </div>
+                );
+              }
                 return (
                   <div
                     key={virtualRow.key}
@@ -204,11 +310,11 @@ export function ChatMessagesNewMessageToast() {
             </div>
           </div>
         </div>
-        {controller.newMessageCount > 0 ? (
+        {newMessageCount > 0 ? (
           <button
             onClick={() => {
               scroll.scrollToLoadedBottom();
-              controller.clearNewMessageCount();
+              setFirstUnreadMessageKey(null);
             }}
             style={{
               position: "absolute",
@@ -217,7 +323,7 @@ export function ChatMessagesNewMessageToast() {
               zIndex: 1,
             }}
           >
-            {controller.newMessageCount} 条新消息
+            {newMessageCount} new messages
           </button>
         ) : null}
       </div>

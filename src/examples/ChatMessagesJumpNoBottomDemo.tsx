@@ -39,6 +39,7 @@ export function ChatMessagesJumpNoBottomDemo() {
     initialMessages,
     initialHasUpper: chatServer.hasUpperMessages(initialMessages),
     initialHasBottom: false,
+    initialLatestMessageId: chatServer.getNewestMessageId(initialMessages),
   });
 
   const [loadingUpper, setLoadingUpper] = React.useState(false);
@@ -124,6 +125,7 @@ export function ChatMessagesJumpNoBottomDemo() {
         controller.replaceWindow(targetMessages, {
           hasUpper: result.hasUpper,
           hasBottom: false,
+          latestMessageId: chatServer.getNewestMessageId(targetMessages),
         });
         controller.highlightMessage(targetId);
       }

@@ -85,6 +85,7 @@ function ChatMessagesRestorePositionSession({
     initialHasBottom:
       initialSnapshot?.hasBottom ??
       chatServer.hasBottomMessages(initialMessages, chatServer.latestMessageId),
+    initialLatestMessageId: chatServer.getNewestMessageId(initialMessages),
   });
 
   const loadUpper = React.useCallback(async () => {

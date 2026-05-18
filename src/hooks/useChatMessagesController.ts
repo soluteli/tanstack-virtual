@@ -4,6 +4,7 @@ export interface UseChatMessagesControllerOptions<TMessage> {
   initialMessages: readonly TMessage[] | (() => readonly TMessage[]);
   initialHasUpper?: boolean;
   initialHasBottom?: boolean;
+  initialLatestMessageId?: number | string | null;
   initialNewMessageCount?: number;
   highlightDurationMs?: number;
 }
@@ -11,12 +12,14 @@ export interface UseChatMessagesControllerOptions<TMessage> {
 export interface ChatMessagesTransitionOptions<TMessage> {
   hasUpper?: boolean;
   hasBottom?: boolean;
+  latestMessageId?: number | string | null;
   guard?: (messages: readonly TMessage[]) => boolean;
 }
 
 export interface ReplaceChatMessagesWindowOptions {
   hasUpper?: boolean;
   hasBottom?: boolean;
+  latestMessageId?: number | string | null;
   newMessageCount?: number;
 }
 
@@ -30,6 +33,7 @@ export interface UseChatMessagesControllerReturn<TMessage> {
   messages: TMessage[];
   hasUpper: boolean;
   hasBottom: boolean;
+  latestMessageId: number | string | null;
   newMessageCount: number;
   highlightedMessageId: number | null;
   replaceWindow: (
@@ -56,6 +60,7 @@ interface ChatMessagesWindowState<TMessage> {
   messages: TMessage[];
   hasUpper: boolean;
   hasBottom: boolean;
+  latestMessageId: number | string | null;
   newMessageCount: number;
 }
 
@@ -77,6 +82,7 @@ export function useChatMessagesController<TMessage>({
   initialMessages,
   initialHasUpper = false,
   initialHasBottom = false,
+  initialLatestMessageId = null,
   initialNewMessageCount = 0,
   highlightDurationMs = 1600,
 }: UseChatMessagesControllerOptions<TMessage>): UseChatMessagesControllerReturn<TMessage> {
@@ -86,6 +92,7 @@ export function useChatMessagesController<TMessage>({
     messages: resolveInitialMessages(initialMessages),
     hasUpper: initialHasUpper,
     hasBottom: initialHasBottom,
+    latestMessageId: initialLatestMessageId,
     newMessageCount: initialNewMessageCount,
   }));
   const [highlightedMessageId, setHighlightedMessageId] = useState<
@@ -109,6 +116,8 @@ export function useChatMessagesController<TMessage>({
         messages: Array.from(messages),
         hasUpper: options?.hasUpper ?? currentState.hasUpper,
         hasBottom: options?.hasBottom ?? currentState.hasBottom,
+        latestMessageId:
+          options?.latestMessageId ?? currentState.latestMessageId,
         newMessageCount:
           options?.newMessageCount ?? currentState.newMessageCount,
       }));
@@ -131,6 +140,8 @@ export function useChatMessagesController<TMessage>({
           messages: [...messages, ...currentState.messages],
           hasUpper: options?.hasUpper ?? currentState.hasUpper,
           hasBottom: options?.hasBottom ?? currentState.hasBottom,
+          latestMessageId:
+            options?.latestMessageId ?? currentState.latestMessageId,
         };
       });
     },
@@ -151,7 +162,9 @@ export function useChatMessagesController<TMessage>({
           ...currentState,
           messages: [...currentState.messages, ...messages],
           hasUpper: options?.hasUpper ?? currentState.hasUpper,
-          hasBottom: options?.hasBottom ?? currentState.hasBottom,
+          hasBottom: false,
+          latestMessageId:
+            options?.latestMessageId ?? currentState.latestMessageId,
         };
       });
     },
@@ -178,7 +191,9 @@ export function useChatMessagesController<TMessage>({
             ? [...currentState.messages, ...messages]
             : currentState.messages,
           hasUpper: options?.hasUpper ?? currentState.hasUpper,
-          hasBottom: options?.hasBottom ?? currentState.hasBottom,
+          hasBottom: false,
+          latestMessageId:
+            options?.latestMessageId ?? currentState.latestMessageId,
           newMessageCount,
         };
       });
@@ -217,6 +232,7 @@ export function useChatMessagesController<TMessage>({
       messages: windowState.messages,
       hasUpper: windowState.hasUpper,
       hasBottom: windowState.hasBottom,
+      latestMessageId: windowState.latestMessageId,
       newMessageCount: windowState.newMessageCount,
       highlightedMessageId,
       replaceWindow,
@@ -236,6 +252,7 @@ export function useChatMessagesController<TMessage>({
       replaceWindow,
       windowState.hasBottom,
       windowState.hasUpper,
+      windowState.latestMessageId,
       windowState.messages,
       windowState.newMessageCount,
     ],
