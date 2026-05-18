@@ -520,6 +520,7 @@ export function useChatScroll<TMessage>(
         : null;
       if (targetId) {
         const align = targetId === currentFirstMessageKey ? 'start' : 'end'
+        // FIXME: need to use raf to jump to correct position
         requestAnimationFrame(() => {
           scrollToMessageKey(targetId, {align});
           if (isAtBottom(virtualizer)) {
