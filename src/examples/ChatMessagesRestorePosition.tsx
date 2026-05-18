@@ -3,6 +3,7 @@ import { useChatMessagesController } from "../hooks/useChatMessagesController";
 import { type ChatScrollAnchor, useChatScroll } from "../hooks/useChatScroll";
 import { getDebugInfo } from "../utils/devHelpers";
 import { createChatServer, type ChatMessage } from "../utils/createChatServer";
+import { MessageDivider } from "../components/MessageDivider";
 
 type MessageKey = string | number;
 
@@ -242,6 +243,18 @@ function ChatMessagesRestorePositionSession({
                     ref={scroll.virtualizer.measureElement}
                   >
                     loading next...
+                  </div>
+                );
+              }
+
+              if (row.type === "new-divider") {
+                return (
+                  <div
+                    key={virtualRow.key}
+                    data-index={virtualRow.index}
+                    ref={scroll.virtualizer.measureElement}
+                  >
+                    <MessageDivider />
                   </div>
                 );
               }

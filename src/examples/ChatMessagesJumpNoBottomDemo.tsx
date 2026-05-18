@@ -3,6 +3,7 @@ import { useChatMessagesController } from "../hooks/useChatMessagesController";
 import { useChatScroll } from "../hooks/useChatScroll";
 import { getDebugInfo } from "../utils/devHelpers";
 import { createChatServer, type ChatMessage } from "../utils/createChatServer";
+import { MessageDivider } from "../components/MessageDivider";
 
 function MessageRow({
   highlighted,
@@ -88,7 +89,7 @@ export function ChatMessagesJumpNoBottomDemo() {
       setJumpStatus(`Jumping to ${targetId}...`);
 
       controller.highlightMessage(targetId);
-      scrollRef.current.scrollToMessageKey(targetId, {align: 'center'})
+      scrollRef.current.scrollToMessageKey(targetId, { align: "center" });
 
       setJumpStatus(`Jumped to ${targetId}`);
     },
@@ -96,9 +97,7 @@ export function ChatMessagesJumpNoBottomDemo() {
   );
 
   const jumpToOutOfRangeMessage = React.useCallback(
-    async (
-      targetId: number,
-    ) => {
+    async (targetId: number) => {
       const oldestId = chatServer.getOldestMessageId(controller.messages);
       const newestId = chatServer.getNewestMessageId(controller.messages);
       const requestId = requestIdRef.current + 1;
@@ -136,7 +135,7 @@ export function ChatMessagesJumpNoBottomDemo() {
     async (targetId: number) => {
       const oldestId = chatServer.getOldestMessageId(controller.messages);
       const newestId = chatServer.getNewestMessageId(controller.messages);
-      
+
       if (oldestId === undefined || newestId === undefined) return;
 
       if (targetId < oldestId || targetId > newestId) {
@@ -144,7 +143,6 @@ export function ChatMessagesJumpNoBottomDemo() {
       } else {
         await jumpToInRangeMessage(targetId);
       }
-
     },
     [
       chatServer,
@@ -226,6 +224,18 @@ export function ChatMessagesJumpNoBottomDemo() {
                     ref={scroll.virtualizer.measureElement}
                   >
                     loading next...
+                  </div>
+                );
+              }
+
+              if (row.type === "new-divider") {
+                return (
+                  <div
+                    key={virtualRow.key}
+                    data-index={virtualRow.index}
+                    ref={scroll.virtualizer.measureElement}
+                  >
+                    <MessageDivider />
                   </div>
                 );
               }

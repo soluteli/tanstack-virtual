@@ -6,6 +6,7 @@ import {
   createChatServer,
   type ChatMessage,
 } from "../utils/createChatServer";
+import { MessageDivider } from "../components/MessageDivider";
 
 function MessageRow({ message }: { message: ChatMessage }) {
   return (
@@ -146,6 +147,18 @@ export function ChatMessages() {
                     ref={scroll.virtualizer.measureElement}
                   >
                     loading next...
+                  </div>
+                );
+              }
+
+              if (row.type === "new-divider") {
+                return (
+                  <div
+                    key={virtualRow.key}
+                    data-index={virtualRow.index}
+                    ref={scroll.virtualizer.measureElement}
+                  >
+                    <MessageDivider />
                   </div>
                 );
               }

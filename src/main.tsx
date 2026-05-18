@@ -8,6 +8,7 @@ import { generateColumns, generateData, RowVirtualizerExperimental } from './exa
 import { RowVirtualizerDynamic } from './examples/RowVirtualizerDynamic'
 import { ChatMessages } from './examples/ChatMessages'
 import { ChatMessagesJumpNoBottomDemo } from './examples/ChatMessagesJumpNoBottomDemo'
+import { ChatMessagesNewMessageDivider } from './examples/ChatMessagesNewMessageDivider'
 import { ChatMessagesNewMessageToast } from './examples/ChatMessagesNewMessageToast'
 import { ChatMessagesRestorePosition } from './examples/ChatMessagesRestorePosition'
 
@@ -47,6 +48,9 @@ function App() {
             <a href="/chat-new-message-toast">chat new message toast</a>
           </li>
           <li>
+            <a href="/chat-new-message-divider">chat new message divider</a>
+          </li>
+          <li>
             <a href="/chat-jump-no-bottom">chat jump no bottom</a>
           </li>
         </ul>
@@ -70,6 +74,8 @@ function App() {
             return <ChatMessagesRestorePosition />
           case '/chat-new-message-toast':
             return <ChatMessagesNewMessageToast />
+          case '/chat-new-message-divider':
+            return <ChatMessagesNewMessageDivider />
           case '/chat-jump-no-bottom':
             return <ChatMessagesJumpNoBottomDemo />
           default:

@@ -16,6 +16,10 @@ export type ChatVirtualRow<TMessage> =
       virtualItem: VirtualItem;
     }
   | {
+      type: "new-divider";
+      virtualItem: VirtualItem;
+    }
+  | {
       type: "message";
       virtualItem: VirtualItem;
       message: TMessage;
@@ -31,6 +35,7 @@ export interface UseChatScrollOptions<TMessage> {
   messages: readonly TMessage[];
   getMessageKey: (message: TMessage) => string | number;
   getScrollElement: () => Element | null;
+  initialFirstUnreadMessageKey?: string | number | null;
   initialScroll?:
     | { type: "bottom" }
     | {
@@ -72,6 +77,10 @@ type ChatRowModel<TMessage> =
     }
   | {
       type: "lower-loading";
+      key: ChatRowKey;
+    }
+  | {
+      type: "new-divider";
       key: ChatRowKey;
     }
   | {
@@ -145,6 +154,7 @@ export function useChatScroll<TMessage>(
     messages,
     getMessageKey,
     getScrollElement,
+    initialFirstUnreadMessageKey: initailFirstUnreadMessageKey,
     initialScroll = { type: "bottom" },
     onLoadUpper,
     hasUpper,
@@ -155,6 +165,9 @@ export function useChatScroll<TMessage>(
 
   const initializedRef = useRef(false);
   const scheduledToBottomRafRef = useRef<number | null>(null);
+  const initialFirstUnreadMessageKeyRef = useRef(
+    initailFirstUnreadMessageKey,
+  );
 
   const nextScrollPurposeRef = useRef<ActiveScrollPurpose | null>(
     initialScroll.type === "bottom"
@@ -226,6 +239,8 @@ export function useChatScroll<TMessage>(
 
   const chatRows = useMemo(() => {
     const rows: ChatRowModel<TMessage>[] = [];
+    const initialFirstUnreadMessageKey =
+      initialFirstUnreadMessageKeyRef.current;
 
     if (hasUpper) {
       rows.push({
@@ -236,6 +251,18 @@ export function useChatScroll<TMessage>(
 
     messages.forEach((message, messageIndex) => {
       const messageKey = getMessageKeyValue(message, messageIndex);
+
+      if (
+        initialFirstUnreadMessageKey !== null &&
+        initialFirstUnreadMessageKey !== undefined &&
+        messageKey === initialFirstUnreadMessageKey
+      ) {
+        rows.push({
+          type: "new-divider",
+          key: `chat-row:new-divider`,
+        });
+      }
+
       rows.push({
         type: "message",
         key: messageKey,
@@ -572,10 +599,10 @@ export function useChatScroll<TMessage>(
         ? nextScrollPurposeRef.current.meta.targetId
         : null;
       if (targetId) {
-        const align = targetId === currentFirstMessageKey ? 'start' : 'end'
+        const align = targetId === currentFirstMessageKey ? "start" : "end";
         // FIXME: need to use raf to jump to correct position
         requestAnimationFrame(() => {
-          scrollToMessageKey(targetId, {align});
+          scrollToMessageKey(targetId, { align });
           if (isAtBottom(virtualizer)) {
             setStickAtBottomPurpose();
           } else {
@@ -604,6 +631,13 @@ export function useChatScroll<TMessage>(
           if (row.type === "lower-loading") {
             return {
               type: "lower-loading",
+              virtualItem,
+            };
+          }
+
+          if (row.type === "new-divider") {
+            return {
+              type: "new-divider",
               virtualItem,
             };
           }

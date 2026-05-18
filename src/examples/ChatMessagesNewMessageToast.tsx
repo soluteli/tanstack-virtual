@@ -2,10 +2,8 @@ import React from "react";
 import { useChatMessagesController } from "../hooks/useChatMessagesController";
 import { isAtBottom, useChatScroll } from "../hooks/useChatScroll";
 import { getDebugInfo } from "../utils/devHelpers";
-import {
-  createChatServer,
-  type ChatMessage,
-} from "../utils/createChatServer";
+import { createChatServer, type ChatMessage } from "../utils/createChatServer";
+import { MessageDivider } from "../components/MessageDivider";
 
 function MessageRow({ message }: { message: ChatMessage }) {
   return (
@@ -71,9 +69,8 @@ export function ChatMessagesNewMessageToast() {
   }, [chatServer, controller.appendMessages, controller.messages]);
 
   const onLatestMessageRead = React.useCallback(async () => {
-    controller.clearNewMessageCount()
-  }, [controller.clearNewMessageCount])
-
+    controller.clearNewMessageCount();
+  }, [controller.clearNewMessageCount]);
 
   const scroll = useChatScroll({
     getScrollElement: () => parentRef.current,
@@ -83,7 +80,7 @@ export function ChatMessagesNewMessageToast() {
     hasUpper: controller.hasUpper,
     onLoadBottom: loadBottom,
     hasBottom: controller.hasBottom,
-    onLatestMessageRead
+    onLatestMessageRead,
   });
 
   const pushMessages = (count: number) => {
@@ -92,13 +89,13 @@ export function ChatMessagesNewMessageToast() {
       chatServer.getNewestMessageId(controller.messages) === previousLatestId;
     const nextMessages = chatServer.getRealtimeMessages(count);
 
-    const isNew = !isAtBottom(scroll.virtualizer)
-    console.log("🚀 ~ pushMessages ~ isNew:", isNew)
+    const isNew = !isAtBottom(scroll.virtualizer);
+    console.log("🚀 ~ pushMessages ~ isNew:", isNew);
 
     controller.appendRealtimeMessages(nextMessages, {
       appendToWindow: isLoadedAtConversationLatest,
       hasBottom: !isLoadedAtConversationLatest,
-      countAsNew: isNew
+      countAsNew: isNew,
     });
   };
 
@@ -173,6 +170,18 @@ export function ChatMessagesNewMessageToast() {
                       ref={scroll.virtualizer.measureElement}
                     >
                       loading next...
+                    </div>
+                  );
+                }
+
+                if (row.type === "new-divider") {
+                  return (
+                    <div
+                      key={virtualRow.key}
+                      data-index={virtualRow.index}
+                      ref={scroll.virtualizer.measureElement}
+                    >
+                      <MessageDivider />
                     </div>
                   );
                 }
