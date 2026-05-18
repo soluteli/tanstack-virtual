@@ -31,8 +31,7 @@ function MessageRow({
 export function ChatMessagesJumpNoBottomDemo() {
   const parentRef = React.useRef<HTMLDivElement>(null);
   const chatServer = React.useMemo(() => createChatServer(), []);
-  const loadGenerationRef = React.useRef(0);
-  const jumpRequestIdRef = React.useRef(0);
+  const requestIdRef = React.useRef(0);
 
   const initialMessages = React.useMemo(
     () => chatServer.getInitialMessages("latest", chatServer.pageSize),
@@ -51,7 +50,7 @@ export function ChatMessagesJumpNoBottomDemo() {
     const startingOldestId = chatServer.getOldestMessageId(controller.messages);
     if (startingOldestId === undefined || startingOldestId <= 0) return;
 
-    const loadGeneration = loadGenerationRef.current;
+    const requestId = requestIdRef.current;
     setLoadingUpper(true);
 
     const previousMessages = await chatServer.fetchPreviousMessages(
@@ -61,7 +60,7 @@ export function ChatMessagesJumpNoBottomDemo() {
 
     setLoadingUpper(false);
 
-    if (loadGeneration !== loadGenerationRef.current) return;
+    if (requestId !== requestIdRef.current) return;
 
     controller.prependMessages(previousMessages, {
       hasUpper: chatServer.hasUpperMessages(previousMessages),
@@ -83,7 +82,7 @@ export function ChatMessagesJumpNoBottomDemo() {
   scrollRef.current = scroll;
 
   const isCurrentJump = React.useCallback(
-    (requestId: number) => jumpRequestIdRef.current === requestId,
+    (requestId: number) => requestIdRef.current === requestId,
     [],
   );
 
@@ -135,10 +134,9 @@ export function ChatMessagesJumpNoBottomDemo() {
     const newestId = chatServer.getNewestMessageId(controller.messages);
     if (oldestId === undefined || newestId === undefined) return;
 
-    const requestId = jumpRequestIdRef.current + 1;
-    jumpRequestIdRef.current = requestId;
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
     const token = scroll.beginScrollIsolation("message-jump");
-    loadGenerationRef.current += 1;
     setLoadingUpper(false);
 
     if (targetId < oldestId || targetId > newestId) {
@@ -150,7 +148,7 @@ export function ChatMessagesJumpNoBottomDemo() {
       );
       return;
     } else {
-      await jumpToInRangeMessage(targetId, requestId);
+      await jumpToInRangeMessage(targetId);
     }
 
     scrollRef.current.endScrollIsolation(token);
