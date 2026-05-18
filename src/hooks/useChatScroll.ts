@@ -24,7 +24,7 @@ export type ChatVirtualRow<TMessage> =
 
 export interface UseChatScrollOptions<TMessage> {
   messages: readonly TMessage[];
-  getMessageKey?: (message: TMessage, index: number) => string | number;
+  getMessageKey: (message: TMessage) => string | number;
   getScrollElement: () => Element | null;
   onLoadUpper?: () => Promise<void>;
   hasUpper?: boolean;
@@ -37,8 +37,7 @@ export interface UseChatScrollReturn<TMessage> {
   virtualizer: Virtualizer<Element, Element>;
   onItemSizeAsyncChange: () => void;
   virtualRows: ChatVirtualRow<TMessage>[];
-  beginScrollIsolation: (reason: ScrollIsolationReason) => number;
-  endScrollIsolation: (token: number) => void;
+  beginJumpToMessage: (targetId: string | number) => string | number;
   scrollToMessageKey: (
     messageKey: string | number,
     options?: ScrollToOptions,
@@ -48,7 +47,7 @@ export interface UseChatScrollReturn<TMessage> {
   totalHeight: number;
 }
 
-export type ScrollIsolationReason = "message-jump";
+export type ScrollPurposeReason = "message-jump";
 
 type MessageKey = string | number;
 type ChatRowKey = string | number;
@@ -76,22 +75,35 @@ interface UpperAnchor {
   offsetFromViewportTop: number;
 }
 
-interface ScrollIsolation {
-  reason: ScrollIsolationReason;
-  token: number;
-}
-
-const getLoadedBottomIndex = <TMessage,>(
-  rows: readonly ChatRowModel<TMessage>[],
-) => {
-  for (let index = rows.length - 1; index >= 0; index -= 1) {
-    if (rows[index]?.type === "message") {
-      return index;
+type ScrollPurpose =
+  | {
+      purpose: "message-jump";
+      meta: {
+        targetId: number | string;
+        count: number;
+      };
     }
-  }
+  | {
+      purpose: "stick-at-bottom";
+      meta: {
+        count: number;
+      };
+    }
+  | {
+      purpose: "load-upper";
+      meta: {
+        count: number;
+        upperAnchor: UpperAnchor | null;
+      };
+    }
+  | {
+      purpose: "load-bottom";
+      meta: {
+        count: number;
+      };
+    };
 
-  return -1;
-};
+type ActiveScrollPurpose = ScrollPurpose;
 
 // Overscan 判断到第一个渲染的 item 渲染时，表示已接近到顶部
 const isNearTop = (instance: Virtualizer<Element, Element>) => {
@@ -102,17 +114,21 @@ const isNearTop = (instance: Virtualizer<Element, Element>) => {
 // Overscan 判断到最后一个渲染的 item 渲染时，表示已接近到底部
 export const isNearBottom = (instance: Virtualizer<Element, Element>) => {
   const virtualItems = instance.getVirtualItems();
-  return (virtualItems[virtualItems.length - 1]?.index ?? -1) >=
-    instance.options.count - 1;
+  return (
+    (virtualItems[virtualItems.length - 1]?.index ?? -1) >=
+    instance.options.count - 1
+  );
 };
 
 // 判断可 virtualItems 中最后一个是否在视口内
 export const isAtBottom = (instance: Virtualizer<Element, Element>) => {
   const virtualItems = instance.getVirtualItems();
-  const viewportEnd = (instance.scrollOffset ?? 0) + (instance.scrollRect?.height ?? 0)
-  const isLastVirtualItemInViewport = (virtualItems[virtualItems.length - 1]?.start ?? 0) < viewportEnd
-  const nearBottom = isNearBottom(instance) 
-  return nearBottom && isLastVirtualItemInViewport
+  const viewportEnd =
+    (instance.scrollOffset ?? 0) + (instance.scrollRect?.height ?? 0);
+  const isLastVirtualItemInViewport =
+    (virtualItems[virtualItems.length - 1]?.start ?? 0) < viewportEnd;
+  const nearBottom = isNearBottom(instance);
+  return nearBottom && isLastVirtualItemInViewport;
 };
 
 export function useChatScroll<TMessage>(
@@ -126,17 +142,18 @@ export function useChatScroll<TMessage>(
     hasUpper,
     onLoadBottom,
     hasBottom,
-    onLatestMessageRead
+    onLatestMessageRead,
   } = options;
 
   const initializedRef = useRef(false);
   const scheduledToBottomRafRef = useRef<number | null>(null);
-  
-  const stickToBottomRef = useRef(true);
-  const isLoadingUpperRef = useRef(false);
-  const isLoadingBottomRef = useRef(false);
-  const isolationTokenRef = useRef(0);
-  const scrollIsolationRef = useRef<ScrollIsolation | null>(null);
+
+  const nextScrollPurposeRef = useRef<ActiveScrollPurpose | null>({
+    purpose: "stick-at-bottom",
+    meta: {
+      count: messages.length,
+    },
+  });
 
   const onLoadUpperRef = useRef(onLoadUpper);
   onLoadUpperRef.current = onLoadUpper;
@@ -153,45 +170,48 @@ export function useChatScroll<TMessage>(
   const onLatestMessageReadRef = useRef(onLatestMessageRead);
   onLatestMessageReadRef.current = onLatestMessageRead;
 
-  const upperAnchorRef = useRef<UpperAnchor | null>(null);
-
-  const isScrollIsolated = useCallback(
-    () => scrollIsolationRef.current !== null,
+  const isDuringJump = useCallback(
+    () => nextScrollPurposeRef.current?.purpose === "message-jump",
     [],
   );
 
-  const cancelScheduledScrollToBottom = useCallback(() => {
+  const setStickAtBottomPurpose = useCallback(
+    () => {
+      nextScrollPurposeRef.current = {
+        purpose: "stick-at-bottom",
+        meta: {
+          count: messages.length,
+        },
+      };
+    },
+    [messages.length],
+  );
 
+  const cancelScheduledScrollToBottom = useCallback(() => {
     if (scheduledToBottomRafRef.current !== null) {
       cancelAnimationFrame(scheduledToBottomRafRef.current);
       scheduledToBottomRafRef.current = null;
     }
   }, []);
 
-  const beginScrollIsolation = useCallback(
-    (reason: ScrollIsolationReason) => {
-      const token = isolationTokenRef.current + 1;
-      isolationTokenRef.current = token;
-      scrollIsolationRef.current = { reason, token };
-      upperAnchorRef.current = null;
-      stickToBottomRef.current = false;
+  const beginJumpToMessage = useCallback(
+    (targetId: MessageKey) => {
+      nextScrollPurposeRef.current = {
+        purpose: "message-jump",
+        meta: {
+          targetId,
+          count: messages.length,
+        },
+      };
       cancelScheduledScrollToBottom();
-      return token;
+      return targetId;
     },
-    [cancelScheduledScrollToBottom],
+    [cancelScheduledScrollToBottom, messages.length],
   );
-
-  const prevTotalMessagesCount = useRef(messages.length)
-  const totalCountDelta = useRef(0)
-  useLayoutEffect(() => {
-    totalCountDelta.current = messages.length - prevTotalMessagesCount.current
-  
-    prevTotalMessagesCount.current = messages.length
-  }, [messages.length])
 
   const getMessageKeyValue = useCallback(
     (message: TMessage, index: number): MessageKey =>
-      getMessageKey?.(message, index) ?? index,
+      getMessageKey(message) ?? index,
     [getMessageKey],
   );
 
@@ -255,21 +275,31 @@ export function useChatScroll<TMessage>(
   const updateUpperAnchor = useCallback(
     (instance: Virtualizer<Element, Element>) => {
       const nextAnchor = getFirstVisibleMessageAnchor(instance);
-      if (nextAnchor) {
-        upperAnchorRef.current = nextAnchor;
-      }
+      if (!nextAnchor) return;
+
+      const currentPurpose = nextScrollPurposeRef.current;
+      if (currentPurpose?.purpose !== "load-upper") return;
+
+      nextScrollPurposeRef.current = {
+        ...currentPurpose,
+        meta: {
+          ...currentPurpose.meta,
+          upperAnchor: nextAnchor,
+        },
+      };
     },
     [getFirstVisibleMessageAnchor],
   );
 
-  const loadPrevious = useCallback(async function (
-    instance: Virtualizer<Element, Element>,
-  ) {
-    if (!hasUpperRef.current || !onLoadUpperRef.current) return;
-    // 在异步 prepend 改变 index 之前，先记录当前 viewport 锚点。
-    updateUpperAnchor(instance);
-    await onLoadUpperRef.current();
-  }, [updateUpperAnchor]);
+  const loadPrevious = useCallback(
+    async function (instance: Virtualizer<Element, Element>) {
+      if (!hasUpperRef.current || !onLoadUpperRef.current) return;
+      // 在异步 prepend 改变 index 之前，先记录当前 viewport 锚点。
+      updateUpperAnchor(instance);
+      await onLoadUpperRef.current();
+    },
+    [updateUpperAnchor],
+  );
 
   const loadNext = useCallback(async function () {
     if (!hasBottomRef.current || !onLoadBottomRef.current) return;
@@ -283,70 +313,79 @@ export function useChatScroll<TMessage>(
     overscan: 5,
     getItemKey: (index) => chatRows[index]?.key ?? index,
     onChange: async (instance, sync) => {
-      if (!isScrollIsolated() && !hasBottomRef.current && isAtBottom(instance)) {
-        onLatestMessageReadRef.current?.()
+      if (
+        !isDuringJump() &&
+        !hasBottomRef.current &&
+        isAtBottom(instance)
+      ) {
+        onLatestMessageReadRef.current?.();
       }
 
       if (!sync) return;
-      if (isScrollIsolated()) return;
+      if (isDuringJump()) return;
 
-      stickToBottomRef.current = isAtBottom(instance)
-      if (stickToBottomRef.current) {
-        upperAnchorRef.current = null;
+      const loadingUpper =
+        nextScrollPurposeRef.current?.purpose === "load-upper";
+      const loadingBottom =
+        nextScrollPurposeRef.current?.purpose === "load-bottom";
+      if (!loadingUpper && !loadingBottom) {
+        if (isAtBottom(instance)) {
+          setStickAtBottomPurpose();
+        } else {
+          nextScrollPurposeRef.current = null;
+        }
       }
 
-      if (isLoadingUpperRef.current) {
+      if (loadingUpper) {
         // loading 期间如果用户继续滚动，以用户最新看到的 message 作为锚点。
         updateUpperAnchor(instance);
       }
 
       const nearTop = isNearTop(instance);
-      if (nearTop && !isLoadingUpperRef.current) {
-        isLoadingUpperRef.current = true;
+      if (nearTop) {
+        nextScrollPurposeRef.current = {
+          purpose: "load-upper",
+          meta: {
+            count: messages.length,
+            upperAnchor: getFirstVisibleMessageAnchor(instance),
+          },
+        };
         try {
           await loadPrevious(instance);
         } catch (error) {}
-        isLoadingUpperRef.current = false;
-        if (isScrollIsolated()) return;
+        if (isDuringJump()) return;
       }
 
       const nearBottom = isNearBottom(instance);
-      if (nearBottom && !isLoadingBottomRef.current) {
-        isLoadingBottomRef.current = true;
+      if (
+        nearBottom &&
+        nextScrollPurposeRef.current?.purpose !== "load-bottom"
+      ) {
+        nextScrollPurposeRef.current = {
+          purpose: "load-bottom",
+          meta: {
+            count: messages.length,
+          },
+        };
         try {
           await loadNext();
         } catch (error) {}
-        isLoadingBottomRef.current = false;
-        if (isScrollIsolated()) return;
+        const completedPurpose = nextScrollPurposeRef.current;
+        if (completedPurpose?.purpose === "load-bottom") {
+          nextScrollPurposeRef.current = isAtBottom(instance)
+            ? {
+                purpose: "stick-at-bottom",
+                meta: {
+                  count: messages.length,
+                },
+              }
+            : null;
+        }
+        if (isDuringJump()) return;
       }
     },
     useFlushSync: false,
   });
-
-  const endScrollIsolation = useCallback(
-    (token: number) => {
-      if (scrollIsolationRef.current?.token !== token) return;
-
-      stickToBottomRef.current = isAtBottom(virtualizer);
-      scrollIsolationRef.current = null;
-    },
-    [virtualizer],
-  );
-
-  const scrollToLoadedBottom = useCallback(
-    (options?: ScrollToOptions) => {
-      if (!messages.length) return;
-      const loadedBottomIndex = getLoadedBottomIndex(chatRows);
-      if (loadedBottomIndex === -1) return;
-
-      virtualizer.scrollToIndex(loadedBottomIndex, {
-        align: "end",
-        behavior: 'smooth',
-        ...options,
-      });
-    },
-    [chatRows, messages.length, virtualizer],
-  );
 
   const scrollToMessageIndex = useCallback(
     (index: number, options?: ScrollToOptions) => {
@@ -362,90 +401,132 @@ export function useChatScroll<TMessage>(
     [chatRows, messages.length, virtualizer],
   );
 
+  const scrollToLoadedBottom = useCallback(
+    (options?: ScrollToOptions) => {
+      if (!messages.length) return;
+      if (messages.length > 0) {
+        scrollToMessageIndex(messages.length - 1, {
+          ...options,
+          align: 'center'
+        })
+      }
+
+    },
+    [chatRows, messages.length, virtualizer],
+  );
+
   const scrollToMessageKey = useCallback(
     (messageKey: MessageKey, options?: ScrollToOptions) => {
       const virtualIndex = chatRows.findIndex(
         (row) => row.type === "message" && row.messageKey === messageKey,
       );
-      if (virtualIndex === -1) return false;
+      if (virtualIndex === -1) return;
 
       virtualizer.scrollToIndex(virtualIndex, options);
-      return true;
     },
     [chatRows, virtualizer],
   );
 
-  const scheduleScrollToBottom = useCallback((options?: ScrollToOptions) => {
-    if (isScrollIsolated() || scheduledToBottomRafRef.current !== null) return;
+  const scheduleScrollToBottom = useCallback(
+    (options?: ScrollToOptions) => {
+      if (isDuringJump() || scheduledToBottomRafRef.current !== null)
+        return;
 
-    scheduledToBottomRafRef.current = requestAnimationFrame(() => {
-      scheduledToBottomRafRef.current = null;
-      if (isScrollIsolated()) return;
-      scrollToLoadedBottom(options);
-    });
-  }, [isScrollIsolated, scrollToLoadedBottom]);
+      scheduledToBottomRafRef.current = requestAnimationFrame(() => {
+        scheduledToBottomRafRef.current = null;
+        if (isDuringJump()) return;
+        scrollToLoadedBottom(options);
+      });
+    },
+    [isDuringJump, scrollToLoadedBottom],
+  );
 
   const onItemSizeAsyncChange = useCallback(() => {
-    if (isScrollIsolated()) return;
-    if (stickToBottomRef.current && !virtualizer.isScrolling)
-      scheduleScrollToBottom({behavior: 'instant'});
-  }, [isScrollIsolated, scheduleScrollToBottom, virtualizer]);
+    if (isDuringJump()) return;
+    if (
+      nextScrollPurposeRef.current?.purpose === "stick-at-bottom" &&
+      !virtualizer.isScrolling
+    ) {
+      scheduleScrollToBottom({ behavior: "instant" });
+    }
+  }, [isDuringJump, scheduleScrollToBottom, virtualizer]);
 
   // 首次进入列表滚到底
   useLayoutEffect(() => {
     if (initializedRef.current) return;
 
     initializedRef.current = true;
-    scheduleScrollToBottom({behavior: 'instant'});
+    scheduleScrollToBottom({ behavior: "instant" });
+    setStickAtBottomPurpose();
   }, [messages.length, scheduleScrollToBottom]);
 
   // 新消息 append 进入列表滚到底
   useLayoutEffect(() => {
     if (!initializedRef.current) return;
-    if (isScrollIsolated()) {
-      totalCountDelta.current = 0;
-      return;
+
+    if (nextScrollPurposeRef.current?.purpose === "stick-at-bottom") {
+
+      const isDataGrow = messages.length > nextScrollPurposeRef.current?.meta.count
+      // 数量变多，并且在底部
+      // USE stick-at-bottom purpose as it can get prev atBottom status
+      if (
+        isDataGrow
+      ) {
+        scheduleScrollToBottom();
+      }
     }
-    // 数量变多，并且在底部
-    // USE stickToBottomRef.current as it can get prev atBottom status
-    if (totalCountDelta.current > 0 && stickToBottomRef.current) {
-      scheduleScrollToBottom()
-    }
-    totalCountDelta.current = 0
-  }, [isScrollIsolated, messages.length, scheduleScrollToBottom]);
+
+  }, [messages.length, scheduleScrollToBottom]);
 
   // 维持 prepend 场景下的滚动位置
   useLayoutEffect(() => {
     if (!initializedRef.current) return;
-    if (isScrollIsolated()) {
-      upperAnchorRef.current = null;
-      return;
-    }
-    const anchor = upperAnchorRef.current;
-    if (anchor) {
-      /**
-       * !FIXME
-       * 消息组件需要定高，如果异步组件不定高，在 loadUpper 后上方的组件高度变化会导致滚动位置不准
-       */
-      const virtualIndex = chatRows.findIndex(
-        (row) => row.type === "message" && row.messageKey === anchor.messageKey,
-      );
-
-      if (virtualIndex !== -1) {
-        // 优先使用 measured data，必要时 fallback 到 TanStack 计算出的 offset。
-        const measurement = virtualizer.measurementsCache.find(
-          (item) => item.index === virtualIndex,
+    if (nextScrollPurposeRef.current?.purpose === "load-upper") {
+      const isDataGrow = messages.length > nextScrollPurposeRef.current?.meta.count
+      const anchor = nextScrollPurposeRef.current?.meta.upperAnchor;
+      debugger
+      if (anchor && isDataGrow) {
+        /**
+         * !FIXME
+         * 消息组件需要定高，如果异步组件不定高，在 loadUpper 后上方的组件高度变化会导致滚动位置不准
+         */
+        const virtualIndex = chatRows.findIndex(
+          (row) => row.type === "message" && row.messageKey === anchor.messageKey,
         );
-        const itemStart =
-          measurement?.start ?? virtualizer.getOffsetForIndex(virtualIndex)?.[0];
-
-        if (itemStart !== undefined) {
-          virtualizer.scrollToOffset(itemStart - anchor.offsetFromViewportTop);
+  
+        if (virtualIndex !== -1) {
+          // 优先使用 measured data，必要时 fallback 到 TanStack 计算出的 offset。
+          const measurement = virtualizer.measurementsCache.find(
+            (item) => item.index === virtualIndex,
+          );
+          const itemStart =
+            measurement?.start ??
+            virtualizer.getOffsetForIndex(virtualIndex)?.[0];
+  
+          if (itemStart !== undefined) {
+            virtualizer.scrollToOffset(itemStart - anchor.offsetFromViewportTop);
+          }
         }
       }
-      upperAnchorRef.current = null;
     }
-  }, [isScrollIsolated, messages.length, virtualizer]);
+  }, [messages.length, virtualizer]);
+
+  useLayoutEffect(() => {
+    if (nextScrollPurposeRef.current?.purpose === "message-jump") {
+      const currentFirstMessageKey = getMessageKey(messages[0])
+      const currentLastMessageKey = getMessageKey(messages[messages.length -1])
+
+      if ([currentFirstMessageKey, currentLastMessageKey].includes(nextScrollPurposeRef.current.meta.targetId)) {
+        scrollToMessageKey(nextScrollPurposeRef.current.meta.targetId)
+        if (isAtBottom(virtualizer)) {
+          setStickAtBottomPurpose();
+        } else {
+          nextScrollPurposeRef.current = null;
+        }
+      }
+
+    }
+  }, [messages.length, virtualizer, scrollToMessageKey])
 
   const virtualItems = virtualizer.getVirtualItems();
   const virtualRows = useMemo(
@@ -484,8 +565,7 @@ export function useChatScroll<TMessage>(
     virtualizer,
     onItemSizeAsyncChange,
     virtualRows,
-    beginScrollIsolation,
-    endScrollIsolation,
+    beginJumpToMessage,
     scrollToMessageKey,
     scrollToMessageIndex,
     scrollToLoadedBottom,

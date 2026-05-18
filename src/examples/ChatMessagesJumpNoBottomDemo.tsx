@@ -86,13 +86,9 @@ export function ChatMessagesJumpNoBottomDemo() {
   const jumpToInRangeMessage = React.useCallback(
     async (targetId: number) => {
       setJumpStatus(`Jumping to ${targetId}...`);
-      const token = scroll.beginScrollIsolation("message-jump");
-      scrollRef.current.scrollToMessageKey(targetId, {
-        align: "center",
-        behavior: "smooth",
-      });
-      scrollRef.current.endScrollIsolation(token);
+
       controller.highlightMessage(targetId);
+      scrollRef.current.scrollToMessageKey(targetId)
 
       setJumpStatus(`Jumped to ${targetId}`);
     },
@@ -102,12 +98,15 @@ export function ChatMessagesJumpNoBottomDemo() {
   const jumpToOutOfRangeMessage = React.useCallback(
     async (
       targetId: number,
-      requestId: number,
-      oldestId: number,
-      newestId: number,
     ) => {
+      const oldestId = chatServer.getOldestMessageId(controller.messages);
+      const newestId = chatServer.getNewestMessageId(controller.messages);
+      const requestId = requestIdRef.current + 1;
+      requestIdRef.current = requestId;
+      setLoadingUpper(false);
+
       setJumpStatus(`Loading around ${targetId}...`);
-      const token = scroll.beginScrollIsolation("message-jump");
+      scrollRef.current.beginJumpToMessage(targetId);
 
       const result = await chatServer.fetchMessagesAround(targetId, {
         oldestId,
@@ -127,15 +126,7 @@ export function ChatMessagesJumpNoBottomDemo() {
           hasUpper: result.hasUpper,
           hasBottom: false,
         });
-        setTimeout(() => {
-          scrollRef.current.scrollToMessageKey(targetId, {
-            align: "center",
-            behavior: "smooth",
-          });
-          console.log('jumpToOutOfRangeMessage end')
-          scrollRef.current.endScrollIsolation(token);
-          controller.highlightMessage(targetId);
-        });
+        controller.highlightMessage(targetId);
       }
     },
     [chatServer, controller, isCurrentJump, jumpToInRangeMessage],
@@ -145,14 +136,11 @@ export function ChatMessagesJumpNoBottomDemo() {
     async (targetId: number) => {
       const oldestId = chatServer.getOldestMessageId(controller.messages);
       const newestId = chatServer.getNewestMessageId(controller.messages);
+      
       if (oldestId === undefined || newestId === undefined) return;
 
-      const requestId = requestIdRef.current + 1;
-      requestIdRef.current = requestId;
-      setLoadingUpper(false);
-
       if (targetId < oldestId || targetId > newestId) {
-        await jumpToOutOfRangeMessage(targetId, requestId, oldestId, newestId);
+        await jumpToOutOfRangeMessage(targetId);
       } else {
         await jumpToInRangeMessage(targetId);
       }
