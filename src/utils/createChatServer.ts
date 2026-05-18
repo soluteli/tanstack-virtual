@@ -39,7 +39,7 @@ interface CreateMessagesParams {
 const DEFAULT_PAGE_SIZE = 20;
 const DEFAULT_TOTAL_MESSAGES_COUNT = 310;
 const DEFAULT_LATEST_MESSAGE_ID = 309;
-const DEFAULT_FETCH_DELAY_MS = 5000;
+const DEFAULT_FETCH_DELAY_MS = 2000;
 
 const delay = (duration: number) =>
   new Promise<void>((resolve) => {

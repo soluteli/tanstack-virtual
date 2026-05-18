@@ -88,7 +88,7 @@ export function ChatMessagesJumpNoBottomDemo() {
       setJumpStatus(`Jumping to ${targetId}...`);
 
       controller.highlightMessage(targetId);
-      scrollRef.current.scrollToMessageKey(targetId)
+      scrollRef.current.scrollToMessageKey(targetId, {align: 'center'})
 
       setJumpStatus(`Jumped to ${targetId}`);
     },
