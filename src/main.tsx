@@ -27,18 +27,6 @@ function App() {
       <nav>
         <ul>
           <li>
-            <a href="/">List</a>
-          </li>
-          <li>
-            <a href="/columns">Column</a>
-          </li>
-          <li>
-            <a href="/grid">Grid</a>
-          </li>
-          <li>
-            <a href="/experimental">Experimental</a>
-          </li>
-          <li>
             <a href="/chat">chat</a>
           </li>
           <li>
@@ -57,17 +45,6 @@ function App() {
       </nav>
       {(() => {
         switch (pathname) {
-          case '/':
-            return <RowVirtualizerDynamic />
-          case '/columns':
-            return <ColumnVirtualizerDynamic />
-          case '/grid': {
-            const columns = generateColumns(30)
-            const data = generateData(columns)
-            return <GridVirtualizerDynamic columns={columns} data={data} />
-          }
-          case '/experimental':
-            return <RowVirtualizerExperimental />
           case '/chat':
             return <ChatMessages />
           case '/chat-restore-position':
