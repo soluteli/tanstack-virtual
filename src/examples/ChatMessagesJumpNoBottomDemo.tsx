@@ -145,7 +145,6 @@ export function ChatMessagesJumpNoBottomDemo() {
     setLoadingUpper(false);
 
     if (targetId < oldestId || targetId > newestId) {
-      console.log('jumpToOutOfRangeMessage')
       await jumpToOutOfRangeMessage(
         targetId,
         requestId,
@@ -154,7 +153,6 @@ export function ChatMessagesJumpNoBottomDemo() {
       );
       return;
     } else {
-      console.log('jumpToInRangeMessage')
       await jumpToInRangeMessage(targetId, requestId);
     }
 
