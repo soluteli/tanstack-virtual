@@ -92,7 +92,6 @@ export function ChatMessagesNewMessageToast() {
     const nextMessages = chatServer.getRealtimeMessages(count);
 
     const isNew = !isAtBottom(scroll.virtualizer);
-    console.log("🚀 ~ pushMessages ~ isNew:", isNew);
 
     controller.appendRealtimeMessages(nextMessages, {
       appendToWindow: isLoadedAtConversationLatest,
