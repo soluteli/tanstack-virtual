@@ -1,5 +1,6 @@
 import React from "react";
-import { useChatMessagesController } from "../hooks/useChatMessagesController";
+import { useChatMessages } from "../hooks/useChatMessages";
+import { useMessageHighlight } from "../hooks/useMessageHighlight";
 import { useChatScroll } from "../hooks/useChatScroll";
 import { getDebugInfo } from "../utils/devHelpers";
 import { createChatServer, type ChatMessage } from "../utils/createChatServer";
@@ -35,50 +36,54 @@ export function ChatMessagesJumpNoBottomDemo() {
     () => chatServer.rangeMessages,
     [chatServer],
   );
-  const controller = useChatMessagesController<ChatMessage>({
+  const controller = useChatMessages<ChatMessage>({
     initialMessages,
-    initialHasUpper: chatServer.hasUpperMessages(initialMessages),
-    initialHasBottom: false,
-    initialLatestMessageId: chatServer.latestMessageId,
+    getMessageKey: (message) => message.id,
+    initialCursor: {
+      hasPrevious: chatServer.hasPreviousMessages(initialMessages),
+      hasNext: false,
+    },
   });
 
-  const [loadingUpper, setLoadingUpper] = React.useState(false);
+  const { highlightedMessageId, highlightMessage } = useMessageHighlight();
+
+  const [loadingPrevious, setLoadingPrevious] = React.useState(false);
   const [jumpStatus, setJumpStatus] = React.useState("Ready");
 
-  const loadUpper = React.useCallback(async () => {
-    const startingOldestId = chatServer.getOldestMessageId(controller.messages);
+  const loadPrevious = React.useCallback(async () => {
+    const currentMessages = controller.rows.filter((r): r is typeof r & { type: "message" } => r.type === "message").map(r => r.message);
+    const startingOldestId = chatServer.getOldestMessageId(currentMessages);
     if (startingOldestId === undefined || startingOldestId <= 0) return;
 
     const requestId = requestIdRef.current;
-    setLoadingUpper(true);
+    setLoadingPrevious(true);
 
     const previousMessages = await chatServer.fetchPreviousMessages(
       startingOldestId,
       chatServer.pageSize,
     );
 
-    setLoadingUpper(false);
+    setLoadingPrevious(false);
 
     if (requestId !== requestIdRef.current) return;
 
-    controller.prependMessages(previousMessages, {
-      hasUpper: chatServer.hasUpperMessages(previousMessages),
-      hasBottom: false,
-      guard: (currentMessages) =>
-        chatServer.getOldestMessageId(currentMessages) === startingOldestId,
+    controller.prepend(previousMessages, {
+      hasPrevious: chatServer.hasPreviousMessages(previousMessages),
+      hasNext: false,
     });
-  }, [chatServer, controller.messages, controller.prependMessages]);
+  }, [chatServer, controller.rows, controller.prepend]);
 
   const scroll = useChatScroll({
+    rows: controller.rows,
     getScrollElement: () => parentRef.current,
-    messages: controller.messages,
-    getMessageKey: (message) => message.id,
-    onLoadUpper: loadUpper,
-    hasUpper: controller.hasUpper,
-    hasBottom: false,
+    onLoadPrevious: loadPrevious,
+    hasPrevious: controller.hasPrevious,
+    hasNext: false,
   });
   const scrollRef = React.useRef(scroll);
-  scrollRef.current = scroll;
+  React.useLayoutEffect(() => {
+    scrollRef.current = scroll;
+  }, [scroll]);
 
   const isCurrentJump = React.useCallback(
     (requestId: number) => requestIdRef.current === requestId,
@@ -89,24 +94,27 @@ export function ChatMessagesJumpNoBottomDemo() {
     async (targetId: number) => {
       setJumpStatus(`Jumping to ${targetId}...`);
 
-      controller.highlightMessage(targetId);
+      highlightMessage(targetId);
       scrollRef.current.scrollToMessageKey(targetId, { align: "center" });
 
       setJumpStatus(`Jumped to ${targetId}`);
     },
-    [controller],
+    [highlightMessage],
   );
 
   const jumpToOutOfRangeMessage = React.useCallback(
     async (targetId: number) => {
-      const oldestId = chatServer.getOldestMessageId(controller.messages);
-      const newestId = chatServer.getNewestMessageId(controller.messages);
+      const currentMessages = controller.rows.filter((r): r is typeof r & { type: "message" } => r.type === "message").map(r => r.message);
+      const oldestId = chatServer.getOldestMessageId(currentMessages);
+      const newestId = chatServer.getNewestMessageId(currentMessages);
       const requestId = requestIdRef.current + 1;
+      if (oldestId === undefined || newestId === undefined) return;
+
       requestIdRef.current = requestId;
-      setLoadingUpper(false);
+      setLoadingPrevious(false);
 
       setJumpStatus(`Loading around ${targetId}...`);
-      scrollRef.current.beginJumpToMessage(targetId);
+      scrollRef.current.markPurposeToJumpMessage(targetId);
 
       const result = await chatServer.fetchMessagesAround(targetId, {
         oldestId,
@@ -118,25 +126,25 @@ export function ChatMessagesJumpNoBottomDemo() {
 
       if (result.direction !== "loaded" && result.messages.length > 0) {
         const targetMessages =
-          result.direction === "upper"
-            ? [...result.messages, ...controller.messages]
-            : [...controller.messages, ...result.messages];
+          result.direction === "previous"
+            ? [...result.messages, ...currentMessages]
+            : [...currentMessages, ...result.messages];
 
-        controller.replaceWindow(targetMessages, {
-          hasUpper: result.hasUpper,
-          hasBottom: false,
-          latestMessageId: chatServer.getNewestMessageId(targetMessages),
+        controller.setMessages(targetMessages, {
+          hasPrevious: result.hasPrevious,
+          hasNext: false,
         });
-        controller.highlightMessage(targetId);
+        highlightMessage(targetId);
       }
     },
-    [chatServer, controller, isCurrentJump, jumpToInRangeMessage],
+    [chatServer, controller, isCurrentJump, jumpToInRangeMessage, highlightMessage],
   );
 
   const jumpToMessage = React.useCallback(
     async (targetId: number) => {
-      const oldestId = chatServer.getOldestMessageId(controller.messages);
-      const newestId = chatServer.getNewestMessageId(controller.messages);
+      const currentMessages = controller.rows.filter((r): r is typeof r & { type: "message" } => r.type === "message").map(r => r.message);
+      const oldestId = chatServer.getOldestMessageId(currentMessages);
+      const newestId = chatServer.getNewestMessageId(currentMessages);
 
       if (oldestId === undefined || newestId === undefined) return;
 
@@ -148,7 +156,7 @@ export function ChatMessagesJumpNoBottomDemo() {
     },
     [
       chatServer,
-      controller.messages,
+      controller.rows,
       jumpToInRangeMessage,
       jumpToOutOfRangeMessage,
       scroll,
@@ -168,11 +176,11 @@ export function ChatMessagesJumpNoBottomDemo() {
       <div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>
         {getDebugInfo(
           scroll,
-          controller.messages,
-          controller.hasUpper,
-          controller.hasBottom,
+          controller.rows.filter((r): r is typeof r & { type: "message" } => r.type === "message").map(r => r.message),
+          controller.hasPrevious,
+          controller.hasNext,
         )}{" "}
-        | Loading upper: {String(loadingUpper)} | Jump: {jumpStatus}
+        | Loading upper: {String(loadingPrevious)} | Jump: {jumpStatus}
       </div>
       <div
         ref={parentRef}
@@ -206,7 +214,7 @@ export function ChatMessagesJumpNoBottomDemo() {
             {scroll.virtualRows.map((row) => {
               const virtualRow = row.virtualItem;
 
-              if (row.type === "upper-loading") {
+              if (row.type === "previous-loading") {
                 return (
                   <div
                     key={virtualRow.key}
@@ -218,7 +226,7 @@ export function ChatMessagesJumpNoBottomDemo() {
                 );
               }
 
-              if (row.type === "lower-loading") {
+              if (row.type === "next-loading") {
                 return (
                   <div
                     key={virtualRow.key}
@@ -252,9 +260,7 @@ export function ChatMessagesJumpNoBottomDemo() {
                   }
                 >
                   <MessageRow
-                    highlighted={
-                      row.message.id === controller.highlightedMessageId
-                    }
+                    highlighted={row.message.id === highlightedMessageId}
                     message={row.message}
                   />
                 </div>

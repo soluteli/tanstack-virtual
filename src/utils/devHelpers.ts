@@ -2,40 +2,43 @@ import type { useChatScroll } from "../hooks/useChatScroll";
 
 export function getMessageWindow(messages: { id: number }[]) {
   if (!messages.length) return "Messages: -";
-  return `Messages: ${messages[0].id}-${messages[messages.length - 1].id}`;
+  const firstMessage = messages[0];
+  const lastMessage = messages[messages.length - 1];
+  if (!firstMessage || !lastMessage) return "Messages: -";
+  return `Messages: ${firstMessage.id}-${lastMessage.id}`;
 }
 
-export function getUpperLoadingInfo(
+export function getPreviousLoadingInfo(
   scroll: ReturnType<typeof useChatScroll>,
-  hasUpper: boolean,
+  hasPrevious: boolean,
 ) {
-  if (!hasUpper) return "Upper loading: false";
-  const row = scroll.virtualRows.find((r) => r.type === "upper-loading");
-  if (!row) return "Upper loading: false";
-  return `Upper loading: true (${row.virtualItem.start}-${row.virtualItem.end})`;
+  if (!hasPrevious) return "Previous loading: false";
+  const row = scroll.virtualRows.find((r) => r.type === "previous-loading");
+  if (!row) return "Previous loading: false";
+  return `Previous loading: true (${row.virtualItem.start}-${row.virtualItem.end})`;
 }
 
-export function getLowerLoadingInfo(
+export function getNextLoadingInfo(
   scroll: ReturnType<typeof useChatScroll>,
-  hasBottom: boolean,
+  hasNext: boolean,
 ) {
-  if (!hasBottom) return "Lower loading: false";
-  const row = scroll.virtualRows.find((r) => r.type === "lower-loading");
-  if (!row) return "Lower loading: false";
-  return `Lower loading: true (${row.virtualItem.start}-${row.virtualItem.end})`;
+  if (!hasNext) return "Next loading: false";
+  const row = scroll.virtualRows.find((r) => r.type === "next-loading");
+  if (!row) return "Next loading: false";
+  return `Next loading: true (${row.virtualItem.start}-${row.virtualItem.end})`;
 }
 
 export function getDebugInfo(
   scroll: ReturnType<typeof useChatScroll>,
   messages: { id: number }[],
-  hasUpper: boolean,
-  hasBottom: boolean,
+  hasPrevious: boolean,
+  hasNext: boolean,
 ) {
   return (
     getMessageWindow(messages) +
     " | " +
-    getUpperLoadingInfo(scroll, hasUpper) +
+    getPreviousLoadingInfo(scroll, hasPrevious) +
     " | " +
-    getLowerLoadingInfo(scroll, hasBottom)
+    getNextLoadingInfo(scroll, hasNext)
   );
 }

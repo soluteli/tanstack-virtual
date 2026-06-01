@@ -1,6 +1,6 @@
 import React from "react";
-import { useChatMessagesController } from "../hooks/useChatMessagesController";
-import { isAtBottom, useChatScroll } from "../hooks/useChatScroll";
+import { useChatMessages } from "../hooks/useChatMessages";
+import { useChatScroll } from "../hooks/useChatScroll";
 import { getDebugInfo } from "../utils/devHelpers";
 import { createChatServer, type ChatMessage } from "../utils/createChatServer";
 import { MessageDivider } from "../components/MessageDivider";
@@ -24,18 +24,21 @@ export function ChatMessagesNewMessageToast() {
     () => chatServer.rangeMessages,
     [chatServer],
   );
-  const controller = useChatMessagesController<ChatMessage>({
+  const controller = useChatMessages<ChatMessage>({
     initialMessages,
-    initialHasUpper: chatServer.hasUpperMessages(initialMessages),
-    initialHasBottom: chatServer.hasBottomMessages(
-      initialMessages,
-      chatServer.latestMessageId,
-    ),
-    initialLatestMessageId: chatServer.latestMessageId,
+    getMessageKey: (message) => message.id,
+    initialCursor: {
+      hasPrevious: chatServer.hasPreviousMessages(initialMessages),
+      hasNext: chatServer.hasNextMessages(
+        initialMessages,
+        chatServer.latestMessageId,
+      ),
+    },
   });
 
-  const loadUpper = React.useCallback(async () => {
-    const startingOldestId = chatServer.getOldestMessageId(controller.messages);
+  const loadPrevious = React.useCallback(async () => {
+    const currentMessages = controller.rows.filter((r): r is typeof r & { type: "message" } => r.type === "message").map(r => r.message);
+    const startingOldestId = chatServer.getOldestMessageId(currentMessages);
     if (startingOldestId === undefined || startingOldestId <= 0) return;
 
     const previousMessages = await chatServer.fetchPreviousMessages(
@@ -43,15 +46,14 @@ export function ChatMessagesNewMessageToast() {
       chatServer.pageSize,
     );
 
-    controller.prependMessages(previousMessages, {
-      hasUpper: chatServer.hasUpperMessages(previousMessages),
-      guard: (currentMessages) =>
-        chatServer.getOldestMessageId(currentMessages) === startingOldestId,
+    controller.prepend(previousMessages, {
+      hasPrevious: chatServer.hasPreviousMessages(previousMessages),
     });
-  }, [chatServer, controller.messages, controller.prependMessages]);
+  }, [chatServer, controller.rows, controller.prepend]);
 
-  const loadBottom = React.useCallback(async () => {
-    const startingNewestId = chatServer.getNewestMessageId(controller.messages);
+  const loadNext = React.useCallback(async () => {
+    const currentMessages = controller.rows.filter((r): r is typeof r & { type: "message" } => r.type === "message").map(r => r.message);
+    const startingNewestId = chatServer.getNewestMessageId(currentMessages);
     if (startingNewestId === undefined) return;
 
     const nextMessages = await chatServer.fetchNextMessages(
@@ -59,46 +61,52 @@ export function ChatMessagesNewMessageToast() {
       chatServer.latestMessageId,
       chatServer.pageSize,
     );
-    const nextNewestId =
-      chatServer.getNewestMessageId(nextMessages) ?? startingNewestId;
 
-    controller.appendMessages(nextMessages, {
-      latestMessageId: nextNewestId,
-      guard: (currentMessages) =>
-        chatServer.getNewestMessageId(currentMessages) === startingNewestId,
-    });
-  }, [chatServer, controller.appendMessages, controller.messages]);
+    controller.append(nextMessages);
+  }, [chatServer, controller.append, controller.rows]);
 
-  const onLatestMessageRead = React.useCallback(async () => {
-    controller.clearNewMessageCount();
-  }, [controller.clearNewMessageCount]);
+  const onLastMessageRead = React.useCallback(
+    (lastMessageKey: string | number) => {
+      controller.markMessageRead(lastMessageKey);
+    },
+    [controller.markMessageRead],
+  );
 
   const scroll = useChatScroll({
+    rows: controller.rows,
     getScrollElement: () => parentRef.current,
-    messages: controller.messages,
-    getMessageKey: (message) => message.id,
-    onLoadUpper: loadUpper,
-    hasUpper: controller.hasUpper,
-    onLoadBottom: loadBottom,
-    hasBottom: controller.hasBottom,
-    onLatestMessageRead,
+    onLoadPrevious: loadPrevious,
+    hasPrevious: controller.hasPrevious,
+    onLoadNext: loadNext,
+    hasNext: controller.hasNext,
+    onLastMessageRead,
   });
 
   const pushMessages = (count: number) => {
-    const previousLatestId =
-      controller.latestMessageId ?? chatServer.latestMessageId;
+    const currentMessages = controller.rows.filter((r): r is typeof r & { type: "message" } => r.type === "message").map(r => r.message);
     const isLoadedAtConversationLatest =
-      chatServer.getNewestMessageId(controller.messages) === previousLatestId;
+      chatServer.getNewestMessageId(currentMessages) === chatServer.latestMessageId;
     const nextMessages = chatServer.getRealtimeMessages(count);
 
-    const isNew = !isAtBottom(scroll.virtualizer);
-
-    controller.appendRealtimeMessages(nextMessages, {
-      appendToWindow: isLoadedAtConversationLatest,
-      latestMessageId: chatServer.latestMessageId,
-      countAsNew: isNew,
-    });
+    if (isLoadedAtConversationLatest) {
+      controller.append(nextMessages);
+    }
   };
+
+  const newMessageCount = React.useMemo(() => {
+    if (controller.lastReadMessageId === null) return 0;
+    let count = 0;
+    for (const row of controller.rows) {
+      if (row.type === "message" && row.message.id > Number(controller.lastReadMessageId)) count++;
+    }
+    return count;
+  }, [controller.rows, controller.lastReadMessageId]);
+
+  const lastMessageId = React.useMemo(() => {
+    const messageRows = controller.rows.filter((r): r is typeof r & { type: "message" } => r.type === "message");
+    const last = messageRows[messageRows.length - 1];
+    return last ? last.message.id : null;
+  }, [controller.rows]);
 
   return (
     <div style={{ position: "relative" }}>
@@ -113,9 +121,9 @@ export function ChatMessagesNewMessageToast() {
       <div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>
         {getDebugInfo(
           scroll,
-          controller.messages,
-          controller.hasUpper,
-          controller.hasBottom,
+          controller.rows.filter((r): r is typeof r & { type: "message" } => r.type === "message").map(r => r.message),
+          controller.hasPrevious,
+          controller.hasNext,
         )}{" "}
       </div>
       <div style={{ position: "relative", height: 400, width: "80%" }}>
@@ -151,7 +159,7 @@ export function ChatMessagesNewMessageToast() {
               {scroll.virtualRows.map((row) => {
                 const virtualRow = row.virtualItem;
 
-                if (row.type === "upper-loading") {
+                if (row.type === "previous-loading") {
                   return (
                     <div
                       key={virtualRow.key}
@@ -163,7 +171,7 @@ export function ChatMessagesNewMessageToast() {
                   );
                 }
 
-                if (row.type === "lower-loading") {
+                if (row.type === "next-loading") {
                   return (
                     <div
                       key={virtualRow.key}
@@ -203,11 +211,13 @@ export function ChatMessagesNewMessageToast() {
             </div>
           </div>
         </div>
-        {controller.newMessageCount > 0 ? (
+        {newMessageCount > 0 ? (
           <button
             onClick={() => {
               scroll.scrollToLoadedBottom();
-              controller.clearNewMessageCount();
+              if (lastMessageId !== null) {
+                controller.markMessageRead(lastMessageId);
+              }
             }}
             style={{
               position: "absolute",
@@ -216,7 +226,7 @@ export function ChatMessagesNewMessageToast() {
               zIndex: 1,
             }}
           >
-            {controller.newMessageCount} 条新消息
+            {newMessageCount} 条新消息
           </button>
         ) : null}
       </div>

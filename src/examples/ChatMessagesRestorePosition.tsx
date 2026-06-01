@@ -1,6 +1,7 @@
 import React from "react";
-import { useChatMessagesController } from "../hooks/useChatMessagesController";
-import { type ChatScrollAnchor, useChatScroll } from "../hooks/useChatScroll";
+import { useChatMessages } from "../hooks/useChatMessages";
+import { useChatScroll } from "../hooks/useChatScroll";
+import type { ChatScrollAnchor } from "../hooks/chat-types";
 import { getDebugInfo } from "../utils/devHelpers";
 import { createChatServer, type ChatMessage } from "../utils/createChatServer";
 import { MessageDivider } from "../components/MessageDivider";
@@ -9,8 +10,8 @@ type MessageKey = string | number;
 
 interface ChatRestoreSnapshot {
   messages: ChatMessage[];
-  hasUpper: boolean;
-  hasBottom: boolean;
+  hasPrevious: boolean;
+  hasNext: boolean;
   totalMessagesCount: number;
   latestMessageId: number | null;
   anchor: ChatScrollAnchor | null;
@@ -30,11 +31,10 @@ function MessageRow({ message }: { message: ChatMessage }) {
 
 export function ChatMessagesRestorePosition() {
   const [entered, setEntered] = React.useState(true);
-  const snapshotRef = React.useRef<ChatRestoreSnapshot | null>(null);
+  const [snapshot, setSnapshot] =
+    React.useState<ChatRestoreSnapshot | null>(null);
 
   if (!entered) {
-    const snapshot = snapshotRef.current;
-
     return (
       <div>
         <button onClick={() => setEntered(true)}>Enter chat</button>
@@ -53,9 +53,9 @@ export function ChatMessagesRestorePosition() {
 
   return (
     <ChatMessagesRestorePositionSession
-      initialSnapshot={snapshotRef.current}
-      onLeave={(snapshot) => {
-        snapshotRef.current = snapshot;
+      initialSnapshot={snapshot}
+      onLeave={(nextSnapshot) => {
+        setSnapshot(nextSnapshot);
         setEntered(false);
       }}
     />
@@ -88,19 +88,21 @@ function ChatMessagesRestorePositionSession({
     [chatServer],
   );
 
-  const controller = useChatMessagesController<ChatMessage>({
+  const controller = useChatMessages<ChatMessage>({
     initialMessages,
-    initialHasUpper:
-      initialSnapshot?.hasUpper ?? chatServer.hasUpperMessages(initialMessages),
-    initialHasBottom:
-      initialSnapshot?.hasBottom ??
-      chatServer.hasBottomMessages(initialMessages, chatServer.latestMessageId),
-    initialLatestMessageId:
-      initialSnapshot?.latestMessageId ?? chatServer.latestMessageId,
+    getMessageKey,
+    initialCursor: {
+      hasPrevious:
+        initialSnapshot?.hasPrevious ?? chatServer.hasPreviousMessages(initialMessages),
+      hasNext:
+        initialSnapshot?.hasNext ??
+        chatServer.hasNextMessages(initialMessages, chatServer.latestMessageId),
+    },
   });
 
-  const loadUpper = React.useCallback(async () => {
-    const startingOldestId = chatServer.getOldestMessageId(controller.messages);
+  const loadPrevious = React.useCallback(async () => {
+    const currentMessages = controller.rows.filter((r): r is typeof r & { type: "message" } => r.type === "message").map(r => r.message);
+    const startingOldestId = chatServer.getOldestMessageId(currentMessages);
     if (startingOldestId === undefined || startingOldestId <= 0) return;
 
     const previousMessages = await chatServer.fetchPreviousMessages(
@@ -108,17 +110,14 @@ function ChatMessagesRestorePositionSession({
       chatServer.pageSize,
     );
 
-    controller.prependMessages(previousMessages, {
-      hasUpper: chatServer.hasUpperMessages(previousMessages),
-      guard: (currentMessages) =>
-        chatServer.getOldestMessageId(currentMessages) === startingOldestId,
+    controller.prepend(previousMessages, {
+      hasPrevious: chatServer.hasPreviousMessages(previousMessages),
     });
-  }, [chatServer, controller.messages, controller.prependMessages]);
+  }, [chatServer, controller.rows, controller.prepend]);
 
   const scroll = useChatScroll({
+    rows: controller.rows,
     getScrollElement: () => parentRef.current,
-    messages: controller.messages,
-    getMessageKey,
     initialScroll:
       initialSnapshot?.anchor !== null && initialSnapshot?.anchor !== undefined
         ? {
@@ -128,8 +127,8 @@ function ChatMessagesRestorePositionSession({
             },
           }
         : { type: "bottom" },
-    onLoadUpper: loadUpper,
-    hasUpper: controller.hasUpper,
+    onLoadPrevious: loadPrevious,
+    hasPrevious: controller.hasPrevious,
   });
 
   const getFirstVisibleMessageAnchor = React.useCallback(() => {
@@ -149,23 +148,20 @@ function ChatMessagesRestorePositionSession({
   }, [getMessageKey, scroll.virtualRows, scroll.virtualizer]);
 
   const leaveChat = React.useCallback(() => {
+    const currentMessages = controller.rows.filter((r): r is typeof r & { type: "message" } => r.type === "message").map(r => r.message);
     onLeave({
-      messages: controller.messages,
-      hasUpper: controller.hasUpper,
-      hasBottom: controller.hasBottom,
+      messages: currentMessages,
+      hasPrevious: controller.hasPrevious,
+      hasNext: controller.hasNext,
       totalMessagesCount: chatServer.totalMessagesCount,
-      latestMessageId:
-        typeof controller.latestMessageId === "number"
-          ? controller.latestMessageId
-          : chatServer.latestMessageId,
+      latestMessageId: chatServer.latestMessageId,
       anchor: getFirstVisibleMessageAnchor(),
     });
   }, [
     chatServer,
-    controller.hasBottom,
-    controller.hasUpper,
-    controller.latestMessageId,
-    controller.messages,
+    controller.hasNext,
+    controller.hasPrevious,
+    controller.rows,
     getFirstVisibleMessageAnchor,
     onLeave,
   ]);
@@ -185,7 +181,7 @@ function ChatMessagesRestorePositionSession({
       <button
         onClick={() => {
           scroll.scrollToMessageIndex(
-            Math.floor(controller.messages.length / 2),
+            Math.floor(controller.rows.filter((r) => r.type === "message").length / 2),
             { behavior: "smooth" },
           );
         }}
@@ -205,9 +201,9 @@ function ChatMessagesRestorePositionSession({
       <div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>
         {getDebugInfo(
           scroll,
-          controller.messages,
-          controller.hasUpper,
-          controller.hasBottom,
+          controller.rows.filter((r): r is typeof r & { type: "message" } => r.type === "message").map(r => r.message),
+          controller.hasPrevious,
+          controller.hasNext,
         )}
       </div>
       <div
@@ -242,7 +238,7 @@ function ChatMessagesRestorePositionSession({
             {scroll.virtualRows.map((row) => {
               const virtualRow = row.virtualItem;
 
-              if (row.type === "upper-loading") {
+              if (row.type === "previous-loading") {
                 return (
                   <div
                     key={virtualRow.key}
@@ -254,7 +250,7 @@ function ChatMessagesRestorePositionSession({
                 );
               }
 
-              if (row.type === "lower-loading") {
+              if (row.type === "next-loading") {
                 return (
                   <div
                     key={virtualRow.key}

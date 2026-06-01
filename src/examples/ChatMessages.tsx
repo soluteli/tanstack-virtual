@@ -1,5 +1,5 @@
 import React from "react";
-import { useChatMessagesController } from "../hooks/useChatMessagesController";
+import { useChatMessages } from "../hooks/useChatMessages";
 import { useChatScroll } from "../hooks/useChatScroll";
 import { getDebugInfo } from "../utils/devHelpers";
 import {
@@ -42,14 +42,17 @@ export function ChatMessages() {
     [chatServer],
   );
 
-  const controller = useChatMessagesController<ChatMessage>({
+  const controller = useChatMessages<ChatMessage>({
     initialMessages,
-    initialHasUpper: chatServer.hasUpperMessages(initialMessages),
-    initialLatestMessageId: chatServer.latestMessageId,
+    getMessageKey: (message) => message.id,
+    initialCursor: {
+      hasPrevious: chatServer.hasPreviousMessages(initialMessages),
+    },
   });
 
-  const loadUpper = React.useCallback(async () => {
-    const startingOldestId = chatServer.getOldestMessageId(controller.messages);
+  const loadPrevious = React.useCallback(async () => {
+    const currentMessages = controller.rows.filter((r): r is typeof r & { type: "message" } => r.type === "message").map(r => r.message);
+    const startingOldestId = chatServer.getOldestMessageId(currentMessages);
     if (startingOldestId === undefined || startingOldestId <= 0) return;
 
     const previousMessages = await chatServer.fetchPreviousMessages(
@@ -57,19 +60,16 @@ export function ChatMessages() {
       chatServer.pageSize,
     );
 
-    controller.prependMessages(previousMessages, {
-      hasUpper: chatServer.hasUpperMessages(previousMessages),
-      guard: (currentMessages) =>
-        chatServer.getOldestMessageId(currentMessages) === startingOldestId,
+    controller.prepend(previousMessages, {
+      hasPrevious: chatServer.hasPreviousMessages(previousMessages),
     });
-  }, [chatServer, controller.messages, controller.prependMessages]);
+  }, [chatServer, controller.rows, controller.prepend]);
 
   const scroll = useChatScroll({
+    rows: controller.rows,
     getScrollElement: () => parentRef.current,
-    messages: controller.messages,
-    getMessageKey: (message) => message.id,
-    onLoadUpper: loadUpper,
-    hasUpper: controller.hasUpper,
+    onLoadPrevious: loadPrevious,
+    hasPrevious: controller.hasPrevious,
   });
 
   return (
@@ -85,7 +85,7 @@ export function ChatMessages() {
       <button
         onClick={() => {
           scroll.scrollToMessageIndex(
-            Math.floor(controller.messages.length / 2),
+            Math.floor(controller.rows.filter((r) => r.type === "message").length / 2),
             { behavior: "smooth" },
           );
         }}
@@ -105,9 +105,9 @@ export function ChatMessages() {
       <div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>
         {getDebugInfo(
           scroll,
-          controller.messages,
-          controller.hasUpper,
-          controller.hasBottom,
+          controller.rows.filter((r): r is typeof r & { type: "message" } => r.type === "message").map(r => r.message),
+          controller.hasPrevious,
+          controller.hasNext,
         )}
       </div>
       <div
@@ -142,7 +142,7 @@ export function ChatMessages() {
             {scroll.virtualRows.map((row) => {
               const virtualRow = row.virtualItem;
 
-              if (row.type === "upper-loading") {
+              if (row.type === "previous-loading") {
                 return (
                   <div
                     key={virtualRow.key}
@@ -154,7 +154,7 @@ export function ChatMessages() {
                 );
               }
 
-              if (row.type === "lower-loading") {
+              if (row.type === "next-loading") {
                 return (
                   <div
                     key={virtualRow.key}

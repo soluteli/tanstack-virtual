@@ -26,9 +26,9 @@ export interface ChatMessagesLoadedRange {
 
 export interface FetchMessagesAroundResult {
   messages: ChatMessage[];
-  direction: "loaded" | "upper" | "bottom";
-  hasUpper: boolean;
-  hasBottom: boolean;
+  direction: "loaded" | "previous" | "next";
+  hasPrevious: boolean;
+  hasNext: boolean;
 }
 
 interface CreateMessagesParams {
@@ -108,10 +108,10 @@ export const createChatServer = ({
   const getNewestMessageId = (messages: readonly ChatMessage[]) =>
     messages[messages.length - 1]?.id;
 
-  const hasUpperMessages = (messages: readonly ChatMessage[]) =>
+  const hasPreviousMessages = (messages: readonly ChatMessage[]) =>
     (getOldestMessageId(messages) ?? 0) > 0;
 
-  const hasBottomMessages = (
+  const hasNextMessages = (
     messages: readonly ChatMessage[],
     conversationLatestId = currentLatestId,
   ) =>
@@ -177,8 +177,8 @@ export const createChatServer = ({
       return {
         messages: [],
         direction: "loaded",
-        hasUpper: loadedRange.oldestId > 0,
-        hasBottom: loadedRange.newestId < loadedRange.conversationLatestId,
+        hasPrevious: loadedRange.oldestId > 0,
+        hasNext: loadedRange.newestId < loadedRange.conversationLatestId,
       };
     }
 
@@ -188,9 +188,9 @@ export const createChatServer = ({
           start: targetId,
           size: loadedRange.oldestId - targetId,
         }),
-        direction: "upper",
-        hasUpper: targetId > 0,
-        hasBottom: loadedRange.newestId < loadedRange.conversationLatestId,
+        direction: "previous",
+        hasPrevious: targetId > 0,
+        hasNext: loadedRange.newestId < loadedRange.conversationLatestId,
       };
     }
 
@@ -199,9 +199,9 @@ export const createChatServer = ({
         start: loadedRange.newestId + 1,
         size: targetId - loadedRange.newestId,
       }),
-      direction: "bottom",
-      hasUpper: loadedRange.oldestId > 0,
-      hasBottom: targetId < loadedRange.conversationLatestId,
+      direction: "next",
+      hasPrevious: loadedRange.oldestId > 0,
+      hasNext: targetId < loadedRange.conversationLatestId,
     };
   };
 
@@ -224,7 +224,7 @@ export const createChatServer = ({
     fetchMessagesAround,
     getOldestMessageId,
     getNewestMessageId,
-    hasUpperMessages,
-    hasBottomMessages,
+    hasPreviousMessages,
+    hasNextMessages,
   };
 };

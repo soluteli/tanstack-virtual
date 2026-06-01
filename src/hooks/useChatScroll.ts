@@ -1,41 +1,20 @@
 import { useCallback, useRef, useLayoutEffect, useMemo } from "react";
 import {
   useVirtualizer,
-  VirtualItem,
   type ScrollToOptions,
   type Virtualizer,
 } from "@tanstack/react-virtual";
+import type { ChatRowModel, ChatScrollAnchor, ChatVirtualRow } from "./chat-types";
 
-export type ChatVirtualRow<TMessage> =
-  | {
-      type: "upper-loading";
-      virtualItem: VirtualItem;
-    }
-  | {
-      type: "lower-loading";
-      virtualItem: VirtualItem;
-    }
-  | {
-      type: "new-divider";
-      virtualItem: VirtualItem;
-    }
-  | {
-      type: "message";
-      virtualItem: VirtualItem;
-      message: TMessage;
-      messageIndex: number;
-    };
+export type { ChatScrollAnchor, ChatVirtualRow } from "./chat-types";
 
-export interface ChatScrollAnchor {
-  messageKey: string | number;
-  offsetFromViewportTop: number;
-}
+export type ChatScrollRecovery =
+  | { mode: "bottom" }
+  | { mode: "anchor"; anchor: ChatScrollAnchor };
 
 export interface UseChatScrollOptions<TMessage> {
-  messages: readonly TMessage[];
-  getMessageKey: (message: TMessage) => string | number;
+  rows: ChatRowModel<TMessage>[];
   getScrollElement: () => Element | null;
-  initialFirstUnreadMessageKey?: string | number | null;
   initialScroll?:
     | { type: "bottom" }
     | {
@@ -44,18 +23,21 @@ export interface UseChatScrollOptions<TMessage> {
           anchor: ChatScrollAnchor;
         };
       };
-  onLoadUpper?: () => Promise<void>;
-  hasUpper?: boolean;
-  onLoadBottom?: () => Promise<void>;
-  hasBottom?: boolean;
-  onLatestMessageRead?: () => void;
+  onLoadPrevious?: () => Promise<void>;
+  hasPrevious?: boolean;
+  onLoadNext?: () => Promise<void>;
+  hasNext?: boolean;
+  onLastMessageRead?: (lastMessageKey: string | number) => void;
+  onInitialScrollSettled?: () => void;
 }
 
 export interface UseChatScrollReturn<TMessage> {
   virtualizer: Virtualizer<Element, Element>;
   onItemSizeAsyncChange: () => void;
   virtualRows: ChatVirtualRow<TMessage>[];
-  beginJumpToMessage: (targetId: string | number) => string | number;
+  markPurposeToJumpMessage: (targetId: string | number) => string | number;
+  markPurposeToSendMessageBottom: (clientMessageId: string) => void;
+  markPurposeToRecovery: (recovery: ChatScrollRecovery) => void;
   scrollToMessageKey: (
     messageKey: string | number,
     options?: ScrollToOptions,
@@ -68,28 +50,6 @@ export interface UseChatScrollReturn<TMessage> {
 export type ScrollPurposeReason = "message-jump";
 
 type MessageKey = string | number;
-type ChatRowKey = string | number;
-
-type ChatRowModel<TMessage> =
-  | {
-      type: "upper-loading";
-      key: ChatRowKey;
-    }
-  | {
-      type: "lower-loading";
-      key: ChatRowKey;
-    }
-  | {
-      type: "new-divider";
-      key: ChatRowKey;
-    }
-  | {
-      type: "message";
-      key: ChatRowKey;
-      messageKey: MessageKey;
-      message: TMessage;
-      messageIndex: number;
-    };
 
 type ScrollPurpose =
   | {
@@ -106,28 +66,50 @@ type ScrollPurpose =
       };
     }
   | {
-      purpose: "load-upper";
+      purpose: "sent-message-to-bottom";
       meta: {
-        count: number;
-        upperAnchor: ChatScrollAnchor | null;
+        clientMessageId: string;
       };
     }
   | {
-      purpose: "load-bottom";
+      purpose: "load-previous";
+      meta: {
+        count: number;
+        previousAnchor: ChatScrollAnchor | null;
+      };
+    }
+  | {
+      purpose: "load-next";
       meta: {
         count: number;
       };
+    }
+  | {
+      purpose: "reconcile";
+      meta:
+        | {
+            mode: "bottom";
+            count: number;
+          }
+        | {
+            mode: "anchor";
+            count: number;
+            anchor: ChatScrollAnchor;
+          };
     };
 
 type ActiveScrollPurpose = ScrollPurpose;
 
-// Overscan 判断到第一个渲染的 item 渲染时，表示已接近到顶部
+const isScrollPurpose = (
+  purpose: ActiveScrollPurpose | null,
+  ...targets: ScrollPurpose["purpose"][]
+) => purpose !== null && targets.includes(purpose.purpose);
+
 const isNearTop = (instance: Virtualizer<Element, Element>) => {
   const virtualItems = instance.getVirtualItems();
   return (virtualItems[0]?.index ?? 0) <= 1;
 };
 
-// Overscan 判断到最后一个渲染的 item 渲染时，表示已接近到底部
 export const isNearBottom = (instance: Virtualizer<Element, Element>) => {
   const virtualItems = instance.getVirtualItems();
   return (
@@ -136,7 +118,6 @@ export const isNearBottom = (instance: Virtualizer<Element, Element>) => {
   );
 };
 
-// 判断可 virtualItems 中最后一个是否在视口内
 export const isAtBottom = (instance: Virtualizer<Element, Element>) => {
   const virtualItems = instance.getVirtualItems();
   const viewportEnd =
@@ -151,63 +132,58 @@ export function useChatScroll<TMessage>(
   options: UseChatScrollOptions<TMessage>,
 ): UseChatScrollReturn<TMessage> {
   const {
-    messages,
-    getMessageKey,
+    rows,
     getScrollElement,
-    initialFirstUnreadMessageKey: initailFirstUnreadMessageKey,
     initialScroll = { type: "bottom" },
-    onLoadUpper,
-    hasUpper,
-    onLoadBottom,
-    hasBottom,
-    onLatestMessageRead,
+    onLoadPrevious,
+    hasPrevious,
+    onLoadNext,
+    hasNext,
+    onLastMessageRead,
+    onInitialScrollSettled,
   } = options;
 
   const initializedRef = useRef(false);
   const scheduledToBottomRafRef = useRef<number | null>(null);
-  const initialFirstUnreadMessageKeyRef = useRef(
-    initailFirstUnreadMessageKey,
-  );
+  const scheduledReconcileRafRef = useRef<number | null>(null);
 
   const nextScrollPurposeRef = useRef<ActiveScrollPurpose | null>(
     initialScroll.type === "bottom"
       ? {
           purpose: "stick-at-bottom",
           meta: {
-            count: messages.length,
+            count: rows.length,
           },
         }
       : null,
   );
 
-  const onLoadUpperRef = useRef(onLoadUpper);
-  onLoadUpperRef.current = onLoadUpper;
+  const onLoadPreviousRef = useRef(onLoadPrevious);
+  onLoadPreviousRef.current = onLoadPrevious;
 
-  const hasUpperRef = useRef(hasUpper);
-  hasUpperRef.current = hasUpper;
+  const hasPreviousRef = useRef(hasPrevious);
+  hasPreviousRef.current = hasPrevious;
 
-  const onLoadBottomRef = useRef(onLoadBottom);
-  onLoadBottomRef.current = onLoadBottom;
+  const onLoadNextRef = useRef(onLoadNext);
+  onLoadNextRef.current = onLoadNext;
 
-  const hasBottomRef = useRef(hasBottom);
-  hasBottomRef.current = hasBottom;
+  const hasNextRef = useRef(hasNext);
+  hasNextRef.current = hasNext;
 
-  const onLatestMessageReadRef = useRef(onLatestMessageRead);
-  onLatestMessageReadRef.current = onLatestMessageRead;
+  const onLastMessageReadRef = useRef(onLastMessageRead);
+  onLastMessageReadRef.current = onLastMessageRead;
 
-  const isDuringJump = useCallback(
-    () => nextScrollPurposeRef.current?.purpose === "message-jump",
-    [],
-  );
+  const onInitialScrollSettledRef = useRef(onInitialScrollSettled);
+  onInitialScrollSettledRef.current = onInitialScrollSettled;
 
   const setStickAtBottomPurpose = useCallback(() => {
     nextScrollPurposeRef.current = {
       purpose: "stick-at-bottom",
       meta: {
-        count: messages.length,
+        count: rows.length,
       },
     };
-  }, [messages.length]);
+  }, [rows.length]);
 
   const cancelScheduledScrollToBottom = useCallback(() => {
     if (scheduledToBottomRafRef.current !== null) {
@@ -216,111 +192,113 @@ export function useChatScroll<TMessage>(
     }
   }, []);
 
-  const beginJumpToMessage = useCallback(
+  const cancelScheduledReconcile = useCallback(() => {
+    if (scheduledReconcileRafRef.current !== null) {
+      cancelAnimationFrame(scheduledReconcileRafRef.current);
+      scheduledReconcileRafRef.current = null;
+    }
+  }, []);
+
+  const markPurposeToJumpMessage = useCallback(
     (targetId: MessageKey) => {
       nextScrollPurposeRef.current = {
         purpose: "message-jump",
         meta: {
           targetId,
-          count: messages.length,
+          count: rows.length,
         },
       };
       cancelScheduledScrollToBottom();
       return targetId;
     },
-    [cancelScheduledScrollToBottom, messages.length],
+    [cancelScheduledScrollToBottom, rows.length],
   );
 
-  const getMessageKeyValue = useCallback(
-    (message: TMessage, index: number): MessageKey =>
-      getMessageKey(message) ?? index,
-    [getMessageKey],
+  const markPurposeToSendMessageBottom = useCallback(
+    (clientMessageId: string) => {
+      nextScrollPurposeRef.current = {
+        purpose: "sent-message-to-bottom",
+        meta: {
+          clientMessageId,
+        },
+      };
+    },
+    [],
   );
 
-  const chatRows = useMemo(() => {
-    const rows: ChatRowModel<TMessage>[] = [];
-    const initialFirstUnreadMessageKey =
-      initialFirstUnreadMessageKeyRef.current;
-
-    if (hasUpper) {
-      rows.push({
-        type: "upper-loading",
-        key: "chat-row:upper-loading",
-      });
-    }
-
-    messages.forEach((message, messageIndex) => {
-      const messageKey = getMessageKeyValue(message, messageIndex);
-
+  const markPurposeToRecovery = useCallback(
+    (recovery: ChatScrollRecovery) => {
+      const currentPurpose = nextScrollPurposeRef.current;
       if (
-        initialFirstUnreadMessageKey !== null &&
-        initialFirstUnreadMessageKey !== undefined &&
-        messageKey === initialFirstUnreadMessageKey
+        isScrollPurpose(
+          currentPurpose,
+          "message-jump",
+          "sent-message-to-bottom",
+          "load-previous",
+        )
       ) {
-        rows.push({
-          type: "new-divider",
-          key: `chat-row:new-divider`,
-        });
+        return;
       }
 
-      rows.push({
-        type: "message",
-        key: messageKey,
-        messageKey,
-        message,
-        messageIndex,
-      });
-    });
-
-    if (hasBottom) {
-      rows.push({
-        type: "lower-loading",
-        key: "chat-row:lower-loading",
-      });
-    }
-
-    return rows;
-  }, [getMessageKeyValue, hasBottom, hasUpper, messages]);
+      cancelScheduledReconcile();
+      nextScrollPurposeRef.current =
+        recovery.mode === "bottom"
+          ? {
+              purpose: "reconcile",
+              meta: {
+                mode: "bottom",
+                count: rows.length,
+              },
+            }
+          : {
+              purpose: "reconcile",
+              meta: {
+                mode: "anchor",
+                count: rows.length,
+                anchor: recovery.anchor,
+              },
+            };
+    },
+    [cancelScheduledReconcile, rows.length],
+  );
 
   const getFirstVisibleMessageAnchor = useCallback(
     (instance: Virtualizer<Element, Element>): ChatScrollAnchor | null => {
       const scrollOffset = instance.scrollOffset ?? 0;
       const virtualItems = instance.getVirtualItems();
       const firstVisibleMessage = virtualItems.find((virtualItem) => {
-        // upper-loading 是列表状态 UI，不作为用户正在阅读的 message 锚点。
         if (virtualItem.start < scrollOffset) return false;
 
-        const row = chatRows[virtualItem.index];
+        const row = rows[virtualItem.index];
         return row?.type === "message";
       });
 
       if (!firstVisibleMessage) return null;
 
-      const row = chatRows[firstVisibleMessage.index];
+      const row = rows[firstVisibleMessage.index];
       if (row?.type !== "message") return null;
 
       return {
         messageKey: row.messageKey,
-        // 用这个偏移在 prepend 后把同一条 message 恢复到相同 viewport 位置。
         offsetFromViewportTop: firstVisibleMessage.start - scrollOffset,
       };
     },
-    [chatRows],
+    [rows],
   );
 
-  const updateUpperAnchor = useCallback(
+  const updatePreviousAnchor = useCallback(
     (instance: Virtualizer<Element, Element>) => {
       const nextAnchor = getFirstVisibleMessageAnchor(instance);
       if (!nextAnchor) return;
 
       const currentPurpose = nextScrollPurposeRef.current;
-      if (currentPurpose?.purpose !== "load-upper") return;
+      if (currentPurpose?.purpose !== "load-previous") return;
 
       nextScrollPurposeRef.current = {
         ...currentPurpose,
         meta: {
           ...currentPurpose.meta,
-          upperAnchor: nextAnchor,
+          previousAnchor: nextAnchor,
         },
       };
     },
@@ -329,38 +307,61 @@ export function useChatScroll<TMessage>(
 
   const loadPrevious = useCallback(
     async function (instance: Virtualizer<Element, Element>) {
-      if (!hasUpperRef.current || !onLoadUpperRef.current) return;
-      // 在异步 prepend 改变 index 之前，先记录当前 viewport 锚点。
-      updateUpperAnchor(instance);
-      await onLoadUpperRef.current();
+      if (!hasPreviousRef.current || !onLoadPreviousRef.current) return;
+      updatePreviousAnchor(instance);
+      await onLoadPreviousRef.current();
     },
-    [updateUpperAnchor],
+    [updatePreviousAnchor],
   );
 
   const loadNext = useCallback(async function () {
-    if (!hasBottomRef.current || !onLoadBottomRef.current) return;
-    await onLoadBottomRef.current();
+    if (!hasNextRef.current || !onLoadNextRef.current) return;
+    await onLoadNextRef.current();
   }, []);
 
   const virtualizer = useVirtualizer({
     getScrollElement,
-    count: chatRows.length,
+    count: rows.length,
     estimateSize: () => 150,
     overscan: 5,
-    getItemKey: (index) => chatRows[index]?.key ?? index,
+    getItemKey: (index) => rows[index]?.key ?? index,
     onChange: async (instance, sync) => {
-      if (!isDuringJump() && !hasBottomRef.current && isAtBottom(instance)) {
-        onLatestMessageReadRef.current?.();
+      if (
+        !hasNextRef.current &&
+        isAtBottom(instance)
+      ) {
+        const lastMessageRow = [...rows].reverse().find(
+          (row) => row.type === "message",
+        );
+        if (lastMessageRow?.type === "message") {
+          onLastMessageReadRef.current?.(lastMessageRow.messageKey);
+        }
       }
 
       if (!sync) return;
-      if (isDuringJump()) return;
+      if (isScrollPurpose(nextScrollPurposeRef.current, "message-jump")) return;
 
-      const loadingUpper =
-        nextScrollPurposeRef.current?.purpose === "load-upper";
-      const loadingBottom =
-        nextScrollPurposeRef.current?.purpose === "load-bottom";
-      if (!loadingUpper && !loadingBottom) {
+      if (
+        nextScrollPurposeRef.current?.purpose === "reconcile" &&
+        instance.isScrolling
+      ) {
+        cancelScheduledReconcile();
+        nextScrollPurposeRef.current = null;
+      }
+
+      const protectedPurpose = isScrollPurpose(
+        nextScrollPurposeRef.current,
+        "message-jump",
+        "sent-message-to-bottom",
+        "reconcile",
+      );
+
+      const loadingPrevious =
+        nextScrollPurposeRef.current?.purpose === "load-previous";
+      const loadingNext =
+        nextScrollPurposeRef.current?.purpose === "load-next";
+
+      if (!loadingPrevious && !loadingNext && !protectedPurpose) {
         if (isAtBottom(instance)) {
           setStickAtBottomPurpose();
         } else {
@@ -368,52 +369,55 @@ export function useChatScroll<TMessage>(
         }
       }
 
-      if (loadingUpper) {
-        // loading 期间如果用户继续滚动，以用户最新看到的 message 作为锚点。
-        updateUpperAnchor(instance);
+      if (loadingPrevious) {
+        updatePreviousAnchor(instance);
       }
 
       const nearTop = isNearTop(instance);
-      if (nearTop) {
+      if (nearTop && hasPreviousRef.current && !protectedPurpose) {
         nextScrollPurposeRef.current = {
-          purpose: "load-upper",
+          purpose: "load-previous",
           meta: {
-            count: messages.length,
-            upperAnchor: getFirstVisibleMessageAnchor(instance),
+            count: rows.length,
+            previousAnchor: getFirstVisibleMessageAnchor(instance),
           },
         };
         try {
           await loadPrevious(instance);
-        } catch (error) {}
-        if (isDuringJump()) return;
+        } catch {
+          // Loading errors are surfaced by the data layer.
+        }
       }
 
       const nearBottom = isNearBottom(instance);
       if (
         nearBottom &&
-        nextScrollPurposeRef.current?.purpose !== "load-bottom"
+        hasNextRef.current &&
+        !protectedPurpose &&
+        nextScrollPurposeRef.current?.purpose !== "load-next"
       ) {
         nextScrollPurposeRef.current = {
-          purpose: "load-bottom",
+          purpose: "load-next",
           meta: {
-            count: messages.length,
+            count: rows.length,
           },
         };
         try {
           await loadNext();
-        } catch (error) {}
+        } catch {
+          // Loading errors are surfaced by the data layer.
+        }
         const completedPurpose = nextScrollPurposeRef.current;
-        if (completedPurpose?.purpose === "load-bottom") {
+        if (completedPurpose?.purpose === "load-next") {
           nextScrollPurposeRef.current = isAtBottom(instance)
             ? {
                 purpose: "stick-at-bottom",
                 meta: {
-                  count: messages.length,
+                  count: rows.length,
                 },
               }
             : null;
         }
-        if (isDuringJump()) return;
       }
     },
     useFlushSync: false,
@@ -421,41 +425,38 @@ export function useChatScroll<TMessage>(
 
   const scrollToMessageIndex = useCallback(
     (index: number, options?: ScrollToOptions) => {
-      if (index < 0 || index >= messages.length) return;
-
-      const virtualIndex = chatRows.findIndex(
+      const virtualIndex = rows.findIndex(
         (row) => row.type === "message" && row.messageIndex === index,
       );
       if (virtualIndex === -1) return;
 
       virtualizer.scrollToIndex(virtualIndex, options);
     },
-    [chatRows, messages.length, virtualizer],
+    [rows, virtualizer],
   );
 
   const scrollToMessageKey = useCallback(
     (messageKey: MessageKey, options?: ScrollToOptions) => {
-      const virtualIndex = chatRows.findIndex(
+      const virtualIndex = rows.findIndex(
         (row) => row.type === "message" && row.messageKey === messageKey,
       );
       if (virtualIndex === -1) return;
 
       virtualizer.scrollToIndex(virtualIndex, options);
     },
-    [chatRows, virtualizer],
+    [rows, virtualizer],
   );
 
   const scrollToLoadedBottom = useCallback(
     (options?: ScrollToOptions) => {
-      if (!messages.length) return;
-      if (messages.length > 0) {
-        scrollToMessageIndex(messages.length - 1, {
-          align: "end",
-          ...options,
-        });
-      }
+      const lastRow = [...rows].reverse().find((row) => row.type === "message");
+      if (lastRow?.type !== "message") return;
+      scrollToMessageIndex(lastRow.messageIndex, {
+        align: "end",
+        ...options,
+      });
     },
-    [chatRows, messages.length, virtualizer],
+    [rows, scrollToMessageIndex],
   );
 
   const restoreScrollAnchor = useCallback(
@@ -464,8 +465,8 @@ export function useChatScroll<TMessage>(
         cancelScheduledScrollToBottom();
       }
 
-      requestAnimationFrame(() => {
-        const virtualIndex = chatRows.findIndex(
+      const restore = () => {
+        const virtualIndex = rows.findIndex(
           (row) =>
             row.type === "message" && row.messageKey === anchor.messageKey,
         );
@@ -484,14 +485,16 @@ export function useChatScroll<TMessage>(
             );
           }
         }
-      });
+      };
+
+      requestAnimationFrame(restore);
     },
-    [chatRows, cancelScheduledScrollToBottom, virtualizer],
+    [rows, cancelScheduledScrollToBottom, virtualizer],
   );
 
   const scheduleScrollToBottom = useCallback(
     (options?: ScrollToOptions) => {
-      if (isDuringJump()) return;
+      if (isScrollPurpose(nextScrollPurposeRef.current, "message-jump")) return;
 
       if (scheduledToBottomRafRef.current !== null) {
         cancelScheduledScrollToBottom();
@@ -499,24 +502,23 @@ export function useChatScroll<TMessage>(
 
       scheduledToBottomRafRef.current = requestAnimationFrame(() => {
         scheduledToBottomRafRef.current = null;
-        if (isDuringJump()) return;
+        if (isScrollPurpose(nextScrollPurposeRef.current, "message-jump")) return;
         scrollToLoadedBottom(options);
       });
     },
-    [isDuringJump, scrollToLoadedBottom, cancelScheduledScrollToBottom],
+    [scrollToLoadedBottom, cancelScheduledScrollToBottom],
   );
 
   const onItemSizeAsyncChange = useCallback(() => {
-    if (isDuringJump()) return;
+    if (isScrollPurpose(nextScrollPurposeRef.current, "message-jump")) return;
     if (
       nextScrollPurposeRef.current?.purpose === "stick-at-bottom" &&
       !virtualizer.isScrolling
     ) {
       scheduleScrollToBottom({ behavior: "instant" });
     }
-  }, [isDuringJump, scheduleScrollToBottom, virtualizer]);
+  }, [scheduleScrollToBottom, virtualizer]);
 
-  // 首次进入列表滚到底
   useLayoutEffect(() => {
     if (initializedRef.current) return;
 
@@ -529,6 +531,12 @@ export function useChatScroll<TMessage>(
       scheduleScrollToBottom({ behavior: "instant" });
       setStickAtBottomPurpose();
     }
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        onInitialScrollSettledRef.current?.();
+      });
+    });
+
   }, [
     initialScroll,
     restoreScrollAnchor,
@@ -536,101 +544,146 @@ export function useChatScroll<TMessage>(
     setStickAtBottomPurpose,
   ]);
 
-  // 新消息 append 进入列表滚到底
   useLayoutEffect(() => {
     if (!initializedRef.current) return;
 
     if (nextScrollPurposeRef.current?.purpose === "stick-at-bottom") {
       const isDataGrow =
-        messages.length > nextScrollPurposeRef.current?.meta.count;
-      // 数量变多，并且在底部
-      // USE stick-at-bottom purpose as it can get prev atBottom status
+        rows.length > nextScrollPurposeRef.current?.meta.count;
       if (isDataGrow) {
         scheduleScrollToBottom();
       }
     }
-  }, [messages.length, scheduleScrollToBottom]);
+  }, [rows.length, scheduleScrollToBottom]);
 
-  // 维持 prepend 场景下的滚动位置
+  useLayoutEffect(() => {
+    const purpose = nextScrollPurposeRef.current;
+    if (purpose?.purpose !== "sent-message-to-bottom") return;
+
+    const clientMessageId = purpose.meta.clientMessageId;
+    scheduleScrollToBottom({ behavior: "smooth" });
+
+    const currentPurpose = nextScrollPurposeRef.current;
+    if (
+      currentPurpose?.purpose === "sent-message-to-bottom" &&
+      currentPurpose.meta.clientMessageId === clientMessageId
+    ) {
+      nextScrollPurposeRef.current = {
+        purpose: "stick-at-bottom",
+        meta: { count: rows.length },
+      };
+    }
+  }, [rows.length, scheduleScrollToBottom]);
+
+  useLayoutEffect(() => {
+    const purpose = nextScrollPurposeRef.current;
+    if (purpose?.purpose !== "reconcile") return;
+
+    cancelScheduledReconcile();
+    scheduledReconcileRafRef.current = requestAnimationFrame(() => {
+      scheduledReconcileRafRef.current = null;
+      const currentPurpose = nextScrollPurposeRef.current;
+      if (
+        currentPurpose?.purpose !== "reconcile" ||
+        currentPurpose.meta.count !== purpose.meta.count ||
+        currentPurpose.meta.mode !== purpose.meta.mode
+      ) {
+        return;
+      }
+
+      if (currentPurpose.meta.mode === "bottom") {
+        scrollToLoadedBottom({ behavior: "instant" });
+        setStickAtBottomPurpose();
+        return;
+      }
+
+      restoreScrollAnchor(currentPurpose.meta.anchor);
+      nextScrollPurposeRef.current = null;
+    });
+
+    return cancelScheduledReconcile;
+  }, [
+    cancelScheduledReconcile,
+    rows.length,
+    restoreScrollAnchor,
+    scrollToLoadedBottom,
+    setStickAtBottomPurpose,
+  ]);
+
   useLayoutEffect(() => {
     if (!initializedRef.current) return;
-    if (nextScrollPurposeRef.current?.purpose === "load-upper") {
+    if (nextScrollPurposeRef.current?.purpose === "load-previous") {
       const isDataGrow =
-        messages.length > nextScrollPurposeRef.current?.meta.count;
-      const anchor = nextScrollPurposeRef.current?.meta.upperAnchor;
+        rows.length > nextScrollPurposeRef.current?.meta.count;
+      const anchor = nextScrollPurposeRef.current?.meta.previousAnchor;
       if (anchor && isDataGrow) {
-        /**
-         * !FIXME
-         * 消息组件需要定高，如果异步组件不定高，在 loadUpper 后上方的组件高度变化会导致滚动位置不准
-         */
-        const virtualIndex = chatRows.findIndex(
-          (row) =>
-            row.type === "message" && row.messageKey === anchor.messageKey,
-        );
+        restoreScrollAnchor(anchor)
+        nextScrollPurposeRef.current = null
+      }
+    }
+  }, [rows.length, restoreScrollAnchor]);
 
-        if (virtualIndex !== -1) {
-          // 优先使用 measured data，必要时 fallback 到 TanStack 计算出的 offset。
-          const measurement = virtualizer.measurementsCache.find(
-            (item) => item.index === virtualIndex,
-          );
-          const itemStart =
-            measurement?.start ??
-            virtualizer.getOffsetForIndex(virtualIndex)?.[0];
+  useLayoutEffect(() => {
+    const purpose = nextScrollPurposeRef.current;
+    if (purpose?.purpose === "message-jump") {
+      const firstMessageRow = rows.find(r => r.type === "message");
+      const lastMessageRow = [...rows].reverse().find(r => r.type === "message");
+      const firstMessageKey = firstMessageRow?.type === "message" ? firstMessageRow.messageKey : undefined;
+      const lastMessageKey = lastMessageRow?.type === "message" ? lastMessageRow.messageKey : undefined;
 
-          if (itemStart !== undefined) {
-            virtualizer.scrollToOffset(
-              itemStart - anchor.offsetFromViewportTop,
-            );
-          }
+      if (rows.length > 0 && firstMessageKey !== undefined && lastMessageKey !== undefined) {
+        const targetId = [firstMessageKey, lastMessageKey].includes(
+          purpose.meta.targetId,
+        )
+          ? purpose.meta.targetId
+          : null;
+        if (targetId) {
+          const align = targetId === firstMessageKey ? "start" : "end";
+          requestAnimationFrame(() => {
+            const currentPurpose = nextScrollPurposeRef.current;
+            if (
+              currentPurpose?.purpose !== "message-jump" ||
+              currentPurpose.meta.targetId !== targetId
+            ) {
+              return;
+            }
+
+            scrollToMessageKey(targetId, { align });
+            if (isAtBottom(virtualizer)) {
+              setStickAtBottomPurpose();
+            } else {
+              nextScrollPurposeRef.current = null;
+            }
+          });
         }
       }
     }
-  }, [messages.length, virtualizer]);
-
-  useLayoutEffect(() => {
-    if (nextScrollPurposeRef.current?.purpose === "message-jump") {
-      const currentFirstMessageKey = getMessageKey(messages[0]);
-      const currentLastMessageKey = getMessageKey(
-        messages[messages.length - 1],
-      );
-      const targetId = [currentFirstMessageKey, currentLastMessageKey].includes(
-        nextScrollPurposeRef.current.meta.targetId,
-      )
-        ? nextScrollPurposeRef.current.meta.targetId
-        : null;
-      if (targetId) {
-        const align = targetId === currentFirstMessageKey ? "start" : "end";
-        // FIXME: need to use raf to jump to correct position
-        requestAnimationFrame(() => {
-          scrollToMessageKey(targetId, { align });
-          if (isAtBottom(virtualizer)) {
-            setStickAtBottomPurpose();
-          } else {
-            nextScrollPurposeRef.current = null;
-          }
-        });
-      }
-    }
-  }, [messages.length, virtualizer, scrollToMessageKey]);
+  }, [
+    rows,
+    rows.length,
+    scrollToMessageKey,
+    setStickAtBottomPurpose,
+    virtualizer,
+  ]);
 
   const virtualItems = virtualizer.getVirtualItems();
   const virtualRows = useMemo(
     () =>
       virtualItems
         .map((virtualItem): ChatVirtualRow<TMessage> | null => {
-          const row = chatRows[virtualItem.index];
+          const row = rows[virtualItem.index];
           if (!row) return null;
 
-          if (row.type === "upper-loading") {
+          if (row.type === "previous-loading") {
             return {
-              type: "upper-loading",
+              type: "previous-loading",
               virtualItem,
             };
           }
 
-          if (row.type === "lower-loading") {
+          if (row.type === "next-loading") {
             return {
-              type: "lower-loading",
+              type: "next-loading",
               virtualItem,
             };
           }
@@ -650,14 +703,16 @@ export function useChatScroll<TMessage>(
           };
         })
         .filter((row): row is ChatVirtualRow<TMessage> => row !== null),
-    [chatRows, virtualItems],
+    [rows, virtualItems],
   );
 
   return {
     virtualizer,
     onItemSizeAsyncChange,
     virtualRows,
-    beginJumpToMessage,
+    markPurposeToJumpMessage,
+    markPurposeToSendMessageBottom,
+    markPurposeToRecovery,
     scrollToMessageKey,
     scrollToMessageIndex,
     scrollToLoadedBottom,
